@@ -9,6 +9,69 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 
+contract WormholeStructs {
+    struct Transfer {
+        // PayloadID uint8 = 1
+        uint8 payloadID;
+        // Amount being transferred (big-endian uint256)
+        uint256 amount;
+        // Address of the token. Left-zero-padded if shorter than 32 bytes
+        bytes32 tokenAddress;
+        // Chain ID of the token
+        uint16 tokenChain;
+        // Address of the recipient. Left-zero-padded if shorter than 32 bytes
+        bytes32 to;
+        // Chain ID of the recipient
+        uint16 toChain;
+        // Amount of tokens (big-endian uint256) that the user is willing to pay as relayer fee. Must be <= Amount.
+        uint256 fee;
+    }
+
+	struct Signature {
+		bytes32 r;
+		bytes32 s;
+		uint8 v;
+		uint8 guardianIndex;
+	}
+
+	struct VM {
+		uint8 version;
+		uint32 timestamp;
+		uint32 nonce;
+		uint16 emitterChainId;
+		bytes32 emitterAddress;
+		uint64 sequence;
+		uint8 consistencyLevel;
+		bytes payload;
+
+		uint32 guardianSetIndex;
+		Signature[] signatures;
+
+		bytes32 hash;
+	}
+    struct AssetMeta {
+        // PayloadID uint8 = 2
+        uint8 payloadID;
+        // Address of the token. Left-zero-padded if shorter than 32 bytes
+        bytes32 tokenAddress;
+        // Chain ID of the token
+        uint16 tokenChain;
+        // Number of decimals of the token (big-endian uint256)
+        uint8 decimals;
+        // Symbol of the token (UTF-8)
+        bytes32 symbol;
+        // Name of the token (UTF-8)
+        bytes32 name;
+    }
+}
+
+/**
+ * @title IWormhole
+ * @dev Wormhole functions to call them for decoding/encoding VAA
+ */
+abstract contract IWormhole {
+function parseAndVerifyVM(bytes calldata encodedVM) public virtual view returns (WormholeStructs.VM memory vm, bool valid, string memory reason);
+}
 /**
  * @title IBridgeWormhole
  * @dev Wormhole bridge functions to call them for swaping
@@ -16,7 +79,10 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 abstract contract IBridgeWormhole {
     function tokenImplementation() public view virtual returns (address);
     function chainId() public view virtual returns  (uint16);
+    function wormhole() public view virtual returns  (address);
+    function isTransferCompleted(bytes32 hash) public virtual view returns (bool);
     function completeTransfer(bytes memory encodedVm) public virtual;
+    function parseTransfer(bytes memory encoded) public virtual pure returns (WormholeStructs.Transfer memory transfer);
     function transferTokens(address token, uint256 amount, uint16 recipientChain, bytes32 recipient, uint256 arbiterFee, uint32 nonce) public virtual payable returns (uint64 sequence) ;
 }
 
@@ -71,34 +137,50 @@ contract AtlasDexSwap is Ownable {
         return balance;
     }
 
-
+    function approveSelfTokens (address erc20Address, address spender,  uint256 _approvalAmount) external {
+        IERC20(erc20Address).safeApprove(spender, _approvalAmount);
+    }
     
     /**
      * @dev Initate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
      * @param _wormholeBridgeToken  a wormhole bridge where fromw need to redeem token
-     * @param sourceToken is asset which we will be unlocking from wormhole bridge
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
-     * @param _data a 1inch data to call aggregate router to swap assets.
+     * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function redeemTokens(address _wormholeBridgeToken, address sourceToken, bytes calldata _encodedVAA,  bytes calldata _data) external {
-        uint256 beforeRedeemBalance = IERC20(sourceToken).balanceOf(address(this));
+    function redeemTokens(address _wormholeBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData) external returns (bool) {
+        // initiate wormhole bridge contract        
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
+
+        // initiate wormhole contract        
+        IWormhole wormholeContract = IWormhole(wormholeTokenBridgeContract.wormhole());
+
+        (WormholeStructs.VM memory vm, ,) = wormholeContract.parseAndVerifyVM(_encodedVAA);
+
+        WormholeStructs.Transfer memory transfer = wormholeTokenBridgeContract.parseTransfer(vm.payload);
+        IERC20 transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
+
         wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
-        
-        uint256 afterRedeemBalance = IERC20(sourceToken).balanceOf(address(this));
 
-        (address _c, SwapDescription memory swapDescriptionObj, bytes memory _d) = abi.decode(_data[4:], (address, SwapDescription, bytes));
 
-        require(afterRedeemBalance > beforeRedeemBalance, "AtlasDex: No Balance Redeemed From Wormhole");
-        require(swapDescriptionObj.amount == afterRedeemBalance - beforeRedeemBalance,  "AtlasDex: Swap amount not matched with redeemed balance");
-        
-        (bool success, bytes memory _returnData) = address(oneInchAggregatorRouter).call(_data);
-        if (success) {
-            (uint returnAmount, uint gasLeft) = abi.decode(_returnData, (uint, uint));
-            // require(returnAmount >= minOut);
-        } else {
+        if(_1inchData.length == 1) {
+            return true;
+        }
+        (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
+
+
+        require(swapDescriptionObj.amount == transfer.amount, "Atlas DEX: Amount Not match with Redeem Amount.");
+        require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
+
+
+        transferToken.transferFrom(msg.sender, address(this), transfer.amount);
+
+        (bool success,) = address(oneInchAggregatorRouter).call(_1inchData);
+        if (!success) {
             revert();
         }
+
+        return true;
+
     } // end of redeem Token
 
 }

@@ -1,6 +1,7 @@
 const HDWalletProvider = require("@truffle/hdwallet-provider");
 require('dotenv').config();
 
+console.log('POLYGONSCAN_API_KEY', process.env.POLYGONSCAN_API_KEY);
 module.exports = {
   compilers: {
        solc: {
@@ -44,7 +45,8 @@ module.exports = {
       provider: function() {
         return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_POLYGON_MAINNET)
       },
-      network_id: 137
+      network_id: 137,
+      skipDryRun: true,
     },
     polygon_testnet: {
       provider: function() {
@@ -61,17 +63,17 @@ module.exports = {
     },
     binance: {
       provider: function() {
-        return new HDWalletProvider(process.env.MNEMONIC, process.env.WEB3_HTTP_PROVIDER_BINANCE_MAINNET)
+        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_BINANCE_MAINNET)
       },
       network_id: 56,
-      gasPrice: 10000000000,
       skipDryRun: true,
     },
   },
 
-  plugins: ["truffle-contract-size", "truffle-plugin-verify"],
+  plugins: ['truffle-plugin-verify'],
   api_keys: {
     bscscan: process.env.BSCSCAN_API_KEY,
     etherscan: process.env.ETHERSCAN_API_KEY,
+    polygonscan: process.env.POLYGONSCAN_API_KEY,
   }
 };
