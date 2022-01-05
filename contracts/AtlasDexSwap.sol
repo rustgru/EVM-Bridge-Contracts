@@ -137,7 +137,7 @@ contract AtlasDexSwap is Ownable {
         return balance;
     }
 
-    function approveSelfTokens (address erc20Address, address spender,  uint256 _approvalAmount) external {
+    function approveSelfTokens (address erc20Address, address spender,  uint256 _approvalAmount) external onlyOwner {
         IERC20(erc20Address).safeApprove(spender, _approvalAmount);
     }
     
@@ -168,11 +168,20 @@ contract AtlasDexSwap is Ownable {
         (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
 
 
-        require(swapDescriptionObj.amount == transfer.amount, "Atlas DEX: Amount Not match with Redeem Amount.");
+        // query decimals
+        (,bytes memory queriedDecimals) = address(transferToken).staticcall(abi.encodeWithSignature("decimals()"));
+        uint8 decimals = abi.decode(queriedDecimals, (uint8));
+        uint256 transferAmount = transfer.amount;
+
+         if (decimals > 8) {
+            transferAmount *= 10 ** (decimals - 8);
+        }
+
+        require(swapDescriptionObj.amount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
         require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
 
 
-        transferToken.transferFrom(msg.sender, address(this), transfer.amount);
+        transferToken.transferFrom(msg.sender, address(this), transferAmount);
 
         (bool success,) = address(oneInchAggregatorRouter).call(_1inchData);
         if (!success) {
