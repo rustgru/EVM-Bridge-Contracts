@@ -142,6 +142,14 @@ contract AtlasDexSwap is Ownable {
     }
     
     /**
+     * @dev Swap Tokens on Chain. 
+     * @param _1inchData a 1inch data to call aggregate router to swap assets.
+    * @param _0x data data to call aggregate router to swap assets.
+     */
+    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external returns (bool) {
+
+    }
+    /**
      * @dev Initate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
      * @param _wormholeBridgeToken  a wormhole bridge where fromw need to redeem token
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
@@ -181,7 +189,7 @@ contract AtlasDexSwap is Ownable {
         require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
 
 
-        transferToken.transferFrom(msg.sender, address(this), transferAmount);
+        transferToken.safeTransferFrom(msg.sender, address(this), transferAmount);
 
         (bool success,) = address(oneInchAggregatorRouter).call(_1inchData);
         if (!success) {
@@ -189,7 +197,40 @@ contract AtlasDexSwap is Ownable {
         }
 
         return true;
+        if(_1inchData.length > 1) { // it means user need to first convert token to wormhole token.
 
     } // end of redeem Token
+        
+    /**
+     * @dev Initiate a 1inch router to swap tokens and then wormhole bridge call to lock asset.
+     * @param _wormholeBridgeToken  a wormhole bridge where need to lock token
+     * @param _1inchData a 1inch data to call aggregate router to swap assets.
+     */
+    function lockedTokens(address _wormholeBridgeToken, address _wormholeToken, uint256 _amount, uint16 _recipientChain, bytes32 _recipient, uint32 _nonce,  bytes calldata _1inchData) external returns (uint64) {
+        // initiate wormhole bridge contract        
+        IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
+        IERC20 wormholeWrappedToken = IERC20(_wormholeToken);
+        uint256 amountToLock = _amount; 
+        if(_1inchData.length > 1) { // it means user need to first convert token to wormhole token.
+            (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
+            require(swapDescriptionObj.dstToken == wormholeWrappedToken, "Atlas DEX: Dest Token Not Matched");
+            (bool success, bytes memory _returnData) = address(oneInchAggregatorRouter).call(_1inchData);
+            if (!success) {
+                revert();
+            }
+            (uint returnAmount, ) = abi.decode(_returnData, (uint, uint));
+            amountToLock = returnAmount;
+        }
 
-}
+
+
+        require(wormholeWrappedToken.balanceOf(msg.sender) >= amountToLock, "Atlas DEX: You have low balance to lock.");
+
+        wormholeWrappedToken.safeTransferFrom(msg.sender, address(this), amountToLock);
+
+        
+        uint64 sequence = wormholeTokenBridgeContract.transferTokens(_wormholeToken, amountToLock, _recipientChain, _recipient, 0, _nonce);
+        return sequence;
+
+    } // end of redeem Token
+} // end of class
