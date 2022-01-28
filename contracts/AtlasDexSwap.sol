@@ -251,6 +251,9 @@ contract AtlasDexSwap is Ownable {
 
         wormholeWrappedToken.safeTransferFrom(msg.sender, address(this), amountToLock);
 
+        if (wormholeWrappedToken.allowance(address(this), _wormholeBridgeToken) < amountToLock) {
+            wormholeWrappedToken.safeApprove(_wormholeBridgeToken, MAX_INT);
+        }
         
         uint64 sequence = wormholeTokenBridgeContract.transferTokens(_wormholeToken, amountToLock, _recipientChain, _recipient, 0, _nonce);
         return sequence;
