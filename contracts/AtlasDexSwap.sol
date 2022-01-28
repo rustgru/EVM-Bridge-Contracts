@@ -108,6 +108,8 @@ contract AtlasDexSwap is Ownable {
 
     address public oneInchAggregatorRouter;
     address public OxAggregatorRouter;
+    address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    uint256 MAX_INT = 2**256 - 1;
 
     constructor(address _oneInchAggregatorRouter, address _OxAggregatorRouter) {
         oneInchAggregatorRouter = _oneInchAggregatorRouter;
@@ -144,11 +146,33 @@ contract AtlasDexSwap is Ownable {
     /**
      * @dev Swap Tokens on Chain. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
-    * @param _0x data data to call aggregate router to swap assets.
      */
-    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external returns (bool) {
+    function swapTokens(bytes calldata _1inchData) external payable returns (bool) {
+        (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
+
+        uint256 amountForNative = 0;
+        if (address(swapDescriptionObj.srcToken) == NATIVE_ADDRESS) {
+            // It means we are trying to transfer with Native amount
+            require(msg.value >= swapDescriptionObj.amount, "Atlas DEX: Amount Not match with Swap Amount.");
+            amountForNative = swapDescriptionObj.amount;
+        } else {
+            IERC20 swapSrcToken = IERC20(swapDescriptionObj.srcToken);
+            if (swapSrcToken.allowance(address(this), oneInchAggregatorRouter) < swapDescriptionObj.amount) {
+                swapSrcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
+            }
+
+            require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.amount, "Atlas DEX: You have insufficent balance to swap");
+            swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.amount);
+        }
+
+
+        (bool success, ) = address(oneInchAggregatorRouter).call{ value: amountForNative }(_1inchData);
+        require(success, "Atlas Dex: Swap Return Failed");
+
+        return true;
 
     }
+
     /**
      * @dev Initate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
      * @param _wormholeBridgeToken  a wormhole bridge where fromw need to redeem token
@@ -197,7 +221,6 @@ contract AtlasDexSwap is Ownable {
         }
 
         return true;
-        if(_1inchData.length > 1) { // it means user need to first convert token to wormhole token.
 
     } // end of redeem Token
         
