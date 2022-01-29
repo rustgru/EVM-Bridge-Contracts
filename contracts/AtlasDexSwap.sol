@@ -229,21 +229,44 @@ contract AtlasDexSwap is Ownable {
      * @param _wormholeBridgeToken  a wormhole bridge where need to lock token
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function lockedTokens(address _wormholeBridgeToken, address _wormholeToken, uint256 _amount, uint16 _recipientChain, bytes32 _recipient, uint32 _nonce,  bytes calldata _1inchData) external returns (uint64) {
+    function lockedTokens(address _wormholeBridgeToken, address _wormholeToken, uint256 _amount, 
+        uint16 _recipientChain, bytes32 _recipient, uint32 _nonce,  bytes calldata _1inchData) external payable returns (uint64) {
         // initiate wormhole bridge contract        
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
         IERC20 wormholeWrappedToken = IERC20(_wormholeToken);
         uint256 amountToLock = _amount; 
         if(_1inchData.length > 1) { // it means user need to first convert token to wormhole token.
             (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
+
+
             require(swapDescriptionObj.dstToken == wormholeWrappedToken, "Atlas DEX: Dest Token Not Matched");
-            (bool success, bytes memory _returnData) = address(oneInchAggregatorRouter).call(_1inchData);
-            if (!success) {
-                revert();
+
+            uint256 amountForNative = 0;
+            if (address(swapDescriptionObj.srcToken) == NATIVE_ADDRESS) {
+                // It means we are trying to transfer with Native amount
+                require(msg.value >= swapDescriptionObj.amount, "Atlas DEX: Amount Not match with Swap Amount.");
+                amountForNative = swapDescriptionObj.amount;
+            } else {
+                IERC20 swapSrcToken = IERC20(swapDescriptionObj.srcToken);
+                
+                
+                require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.amount, "Atlas DEX: You have insufficient balance to swap");
+                swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.amount);
+
+                if (swapSrcToken.allowance(address(this), oneInchAggregatorRouter) < swapDescriptionObj.amount) {
+                    swapSrcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
+                }
+
             }
+
+
+            (bool success, bytes memory _returnData) = address(oneInchAggregatorRouter).call{ value: amountForNative }(_1inchData);
+            require(success, "Atlas Dex: Swap Return Failed");
+
             (uint returnAmount, ) = abi.decode(_returnData, (uint, uint));
             amountToLock = returnAmount;
-        }
+
+        } // end of if for 1 inch data. 
 
 
 
