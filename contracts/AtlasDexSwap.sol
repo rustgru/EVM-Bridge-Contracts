@@ -111,6 +111,7 @@ contract AtlasDexSwap is Ownable {
     address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     uint256 MAX_INT = 2**256 - 1;
 
+    event AmountLocked (address indexed dstReceiver, uint256 amountReceived);
     constructor(address _oneInchAggregatorRouter, address _OxAggregatorRouter) {
         oneInchAggregatorRouter = _oneInchAggregatorRouter;
         OxAggregatorRouter = _OxAggregatorRouter;
@@ -214,7 +215,9 @@ contract AtlasDexSwap is Ownable {
 
 
         transferToken.safeTransferFrom(msg.sender, address(this), transferAmount);
-
+        if (swapDescriptionObj.srcToken.allowance(address(this), oneInchAggregatorRouter) < swapDescriptionObj.amount) {
+            swapDescriptionObj.srcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
+        }
         (bool success,) = address(oneInchAggregatorRouter).call(_1inchData);
         if (!success) {
             revert();
@@ -277,7 +280,7 @@ contract AtlasDexSwap is Ownable {
         if (wormholeWrappedToken.allowance(address(this), _wormholeBridgeToken) < amountToLock) {
             wormholeWrappedToken.safeApprove(_wormholeBridgeToken, MAX_INT);
         }
-        
+        emit AmountLocked(msg.sender, amountToLock);
         uint64 sequence = wormholeTokenBridgeContract.transferTokens(_wormholeToken, amountToLock, _recipientChain, _recipient, 0, _nonce);
         return sequence;
 
