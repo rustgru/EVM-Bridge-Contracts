@@ -6,6 +6,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 
@@ -106,6 +107,14 @@ contract AtlasDexSwap is Ownable {
         bytes permit;
     }
 
+    struct _0xSwapDescription {
+        address inputToken;
+        address outputToken;
+        uint256 inputTokenAmount;
+    }
+
+
+
     address public oneInchAggregatorRouter;
     address public OxAggregatorRouter;
     address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -117,6 +126,10 @@ contract AtlasDexSwap is Ownable {
         OxAggregatorRouter = _OxAggregatorRouter;
     }
 
+    function test (bytes calldata data) external pure returns (address) {
+         ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(data[4:], (_0xSwapDescription));
+        return address(swapDescriptionObj.inputToken);
+    }
     function update1inchAggregationRouter (address _newRouter) external onlyOwner returns (bool) {
         oneInchAggregatorRouter = _newRouter;
         return true;
@@ -145,10 +158,62 @@ contract AtlasDexSwap is Ownable {
     }
     
     /**
-     * @dev Swap Tokens on Chain. 
+     * @dev Swap Tokens on 0x. 
+     * @param _0xData a 0x data to call aggregate router to swap assets.
+     */
+    function _swapToken0x(bytes calldata _0xData) internal returns (bool) {
+
+        ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
+        uint256 outputCurrencyBalanceBeforeSwap = 0;
+
+        // this if else is to save output token balance
+        if (address(swapDescriptionObj.outputToken) == NATIVE_ADDRESS) {
+            outputCurrencyBalanceBeforeSwap = address(this).balance;
+        } else {
+            IERC20 swapOutputToken = IERC20(swapDescriptionObj.outputToken);
+            outputCurrencyBalanceBeforeSwap = swapOutputToken.balanceOf(address(this));
+        } // end of else
+
+        
+        if (address(swapDescriptionObj.inputToken) == NATIVE_ADDRESS) {
+            // It means we are trying to transfer with Native amount
+            require(msg.value >= swapDescriptionObj.inputTokenAmount, "Atlas DEX: Amount Not match with Swap Amount.");
+        } else {
+            IERC20 swapSrcToken = IERC20(swapDescriptionObj.inputToken);
+            if (swapSrcToken.allowance(address(this), OxAggregatorRouter) < swapDescriptionObj.inputTokenAmount) {
+                swapSrcToken.safeApprove(OxAggregatorRouter, MAX_INT);
+            }
+
+            require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.inputTokenAmount, "Atlas DEX: You have insufficent balance to swap");
+            swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.inputTokenAmount);
+        }
+
+
+
+        (bool success, ) = address(OxAggregatorRouter).call{ value: msg.value }(_0xData);
+        require(success, "Atlas Dex: Swap Return Failed");
+        // Again this check is to maintain for sending recieve balance to msg.sender
+        if (address(swapDescriptionObj.outputToken) == NATIVE_ADDRESS) {
+            uint256 outputCurrencyBalanceAfterSwap = address(this).balance ;
+            outputCurrencyBalanceAfterSwap = outputCurrencyBalanceAfterSwap - outputCurrencyBalanceBeforeSwap;
+            require(outputCurrencyBalanceAfterSwap > 0, "Atas DEX: Transfer output amount should be greater than 0.");
+            payable(msg.sender).transfer(outputCurrencyBalanceAfterSwap);
+        } else {
+            IERC20 swapOutputToken = IERC20(swapDescriptionObj.outputToken);
+            uint256 outputCurrencyBalanceAfterSwap = swapOutputToken.balanceOf(address(this));
+            outputCurrencyBalanceAfterSwap = outputCurrencyBalanceAfterSwap - outputCurrencyBalanceBeforeSwap;
+            require(outputCurrencyBalanceAfterSwap > 0, "Atas DEX: Transfer output amount should be greater than 0.");
+            swapOutputToken.safeTransfer(msg.sender, outputCurrencyBalanceAfterSwap);
+
+        } // end of else
+        // Now need to transfer fund to destination address. 
+        return true;
+    } // end of swap function
+    /**
+     * @dev Swap Tokens on 1inch. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function swapTokens(bytes calldata _1inchData) external payable returns (bool) {
+    function _swapToken1Inch(bytes calldata _1inchData) internal returns (bool) {
         (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
 
         uint256 amountForNative = 0;
@@ -171,6 +236,17 @@ contract AtlasDexSwap is Ownable {
         require(success, "Atlas Dex: Swap Return Failed");
 
         return true;
+    } // end of swap function
+    /**
+     * @dev Swap Tokens on Chain. 
+     * @param _1inchData a 1inch data to call aggregate router to swap assets.
+     */
+    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external payable returns (bool) {
+        if(_1inchData.length > 1) {
+            return _swapToken1Inch(_1inchData);
+        } else {
+            return _swapToken0x(_0xData);
+        }
 
     }
 
@@ -285,4 +361,7 @@ contract AtlasDexSwap is Ownable {
         return sequence;
 
     } // end of redeem Token
+
+    receive() external payable {}
+
 } // end of class
