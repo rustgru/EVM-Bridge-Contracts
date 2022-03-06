@@ -121,15 +121,11 @@ contract AtlasDexSwap is Ownable {
     uint256 MAX_INT = 2**256 - 1;
 
     event AmountLocked (address indexed dstReceiver, uint256 amountReceived);
-    constructor(address _oneInchAggregatorRouter, address _OxAggregatorRouter) {
-        oneInchAggregatorRouter = _oneInchAggregatorRouter;
-        OxAggregatorRouter = _OxAggregatorRouter;
+    constructor() {
+        oneInchAggregatorRouter = 0x1111111254fb6c44bAC0beD2854e76F90643097d;
+        OxAggregatorRouter = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF;
     }
 
-    function test (bytes calldata data) external pure returns (address) {
-         ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(data[4:], (_0xSwapDescription));
-        return address(swapDescriptionObj.inputToken);
-    }
     function update1inchAggregationRouter (address _newRouter) external onlyOwner returns (bool) {
         oneInchAggregatorRouter = _newRouter;
         return true;
@@ -161,7 +157,7 @@ contract AtlasDexSwap is Ownable {
      * @dev Swap Tokens on 0x. 
      * @param _0xData a 0x data to call aggregate router to swap assets.
      */
-    function _swapToken0x(bytes calldata _0xData) internal returns (bool) {
+    function _swapToken0x(bytes calldata _0xData) internal returns (uint256) {
 
         ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
         uint256 outputCurrencyBalanceBeforeSwap = 0;
@@ -188,32 +184,30 @@ contract AtlasDexSwap is Ownable {
             swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.inputTokenAmount);
         }
 
-
-
         (bool success, ) = address(OxAggregatorRouter).call{ value: msg.value }(_0xData);
         require(success, "Atlas Dex: Swap Return Failed");
-        // Again this check is to maintain for sending recieve balance to msg.sender
+        uint256 outputCurrencyBalanceAfterSwap = 0;
+        // Again this check is to maintain for sending receiver balance to msg.sender
         if (address(swapDescriptionObj.outputToken) == NATIVE_ADDRESS) {
-            uint256 outputCurrencyBalanceAfterSwap = address(this).balance ;
+            outputCurrencyBalanceAfterSwap = address(this).balance ;
             outputCurrencyBalanceAfterSwap = outputCurrencyBalanceAfterSwap - outputCurrencyBalanceBeforeSwap;
-            require(outputCurrencyBalanceAfterSwap > 0, "Atas DEX: Transfer output amount should be greater than 0.");
+            require(outputCurrencyBalanceAfterSwap > 0, "Atlas DEX: Transfer output amount should be greater than 0.");
             payable(msg.sender).transfer(outputCurrencyBalanceAfterSwap);
         } else {
             IERC20 swapOutputToken = IERC20(swapDescriptionObj.outputToken);
-            uint256 outputCurrencyBalanceAfterSwap = swapOutputToken.balanceOf(address(this));
+            outputCurrencyBalanceAfterSwap = swapOutputToken.balanceOf(address(this));
             outputCurrencyBalanceAfterSwap = outputCurrencyBalanceAfterSwap - outputCurrencyBalanceBeforeSwap;
-            require(outputCurrencyBalanceAfterSwap > 0, "Atas DEX: Transfer output amount should be greater than 0.");
+            require(outputCurrencyBalanceAfterSwap > 0, "Atlas DEX: Transfer output amount should be greater than 0.");
             swapOutputToken.safeTransfer(msg.sender, outputCurrencyBalanceAfterSwap);
-
         } // end of else
         // Now need to transfer fund to destination address. 
-        return true;
+        return outputCurrencyBalanceAfterSwap;
     } // end of swap function
     /**
      * @dev Swap Tokens on 1inch. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function _swapToken1Inch(bytes calldata _1inchData) internal returns (bool) {
+    function _swapToken1Inch(bytes calldata _1inchData) internal returns (uint256) {
         (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
 
         uint256 amountForNative = 0;
@@ -232,16 +226,18 @@ contract AtlasDexSwap is Ownable {
         }
 
 
-        (bool success, ) = address(oneInchAggregatorRouter).call{ value: amountForNative }(_1inchData);
+        (bool success, bytes memory _returnData ) = address(oneInchAggregatorRouter).call{ value: amountForNative }(_1inchData);
         require(success, "Atlas Dex: Swap Return Failed");
 
-        return true;
+
+        (uint returnAmount, ) = abi.decode(_returnData, (uint, uint));
+        return returnAmount;
     } // end of swap function
     /**
      * @dev Swap Tokens on Chain. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external payable returns (bool) {
+    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external payable returns (uint256) {
         if(_1inchData.length > 1) {
             return _swapToken1Inch(_1inchData);
         } else {
@@ -302,62 +298,48 @@ contract AtlasDexSwap is Ownable {
         return true;
 
     } // end of redeem Token
-        
+
+    struct LockedToken {
+        address _wormholeBridgeToken;
+        address _wormholeToken;
+        uint256 _amount;
+        uint16 _recipientChain;
+        bytes32 _recipient;
+        uint32 _nonce;
+        bytes _1inchData;
+        bytes _0xData;
+    }
     /**
-     * @dev Initiate a 1inch router to swap tokens and then wormhole bridge call to lock asset.
-     * @param _wormholeBridgeToken  a wormhole bridge where need to lock token
-     * @param _1inchData a 1inch data to call aggregate router to swap assets.
+     * @dev Initiate a 1inch/_0x router to swap tokens and then wormhole bridge call to lock asset.
+     * @param lockedTokenData  a wormhole bridge where need to lock token
      */
-    function lockedTokens(address _wormholeBridgeToken, address _wormholeToken, uint256 _amount, 
-        uint16 _recipientChain, bytes32 _recipient, uint32 _nonce,  bytes calldata _1inchData) external payable returns (uint64) {
+    function lockedTokens( LockedToken calldata lockedTokenData) external payable returns (uint64) {
         // initiate wormhole bridge contract        
-        IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
-        IERC20 wormholeWrappedToken = IERC20(_wormholeToken);
-        uint256 amountToLock = _amount; 
-        if(_1inchData.length > 1) { // it means user need to first convert token to wormhole token.
-            (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
-
-
-            require(swapDescriptionObj.dstToken == wormholeWrappedToken, "Atlas DEX: Dest Token Not Matched");
-
-            uint256 amountForNative = 0;
-            if (address(swapDescriptionObj.srcToken) == NATIVE_ADDRESS) {
-                // It means we are trying to transfer with Native amount
-                require(msg.value >= swapDescriptionObj.amount, "Atlas DEX: Amount Not match with Swap Amount.");
-                amountForNative = swapDescriptionObj.amount;
-            } else {
-                IERC20 swapSrcToken = IERC20(swapDescriptionObj.srcToken);
-                
-                
-                require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.amount, "Atlas DEX: You have insufficient balance to swap");
-                swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.amount);
-
-                if (swapSrcToken.allowance(address(this), oneInchAggregatorRouter) < swapDescriptionObj.amount) {
-                    swapSrcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
-                }
-
-            }
-
-
-            (bool success, bytes memory _returnData) = address(oneInchAggregatorRouter).call{ value: amountForNative }(_1inchData);
-            require(success, "Atlas Dex: Swap Return Failed");
-
-            (uint returnAmount, ) = abi.decode(_returnData, (uint, uint));
-            amountToLock = returnAmount;
-
+        IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(lockedTokenData._wormholeBridgeToken);
+        IERC20 wormholeWrappedToken = IERC20(lockedTokenData._wormholeToken);
+        uint256 amountToLock = lockedTokenData._amount; 
+        if(lockedTokenData._1inchData.length > 1) { // it means user need to first convert token to wormhole token.
+            (, SwapDescription memory swapDescriptionObj,) = abi.decode(lockedTokenData._1inchData[4:], (address, SwapDescription, bytes));
+            require(swapDescriptionObj.dstToken == wormholeWrappedToken, "Atlas DEX: Dest Token Not Matched");        
+            amountToLock = _swapToken1Inch(lockedTokenData._1inchData);
         } // end of if for 1 inch data. 
-
+        else if(lockedTokenData._0xData.length > 1) { // it means user need to first convert token to wormhole token.
+        ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(lockedTokenData._0xData[4:], (_0xSwapDescription));
+            require(swapDescriptionObj.outputToken == address(wormholeWrappedToken), "Atlas DEX: Dest Token Not Matched");        
+            amountToLock = _swapToken0x(lockedTokenData._0xData);
+        } // end of if for 1 inch data. 
 
 
         require(wormholeWrappedToken.balanceOf(msg.sender) >= amountToLock, "Atlas DEX: You have low balance to lock.");
 
         wormholeWrappedToken.safeTransferFrom(msg.sender, address(this), amountToLock);
 
-        if (wormholeWrappedToken.allowance(address(this), _wormholeBridgeToken) < amountToLock) {
-            wormholeWrappedToken.safeApprove(_wormholeBridgeToken, MAX_INT);
+        if (wormholeWrappedToken.allowance(address(this), lockedTokenData._wormholeBridgeToken) < amountToLock) {
+            wormholeWrappedToken.safeApprove(lockedTokenData._wormholeBridgeToken, MAX_INT);
         }
         emit AmountLocked(msg.sender, amountToLock);
-        uint64 sequence = wormholeTokenBridgeContract.transferTokens(_wormholeToken, amountToLock, _recipientChain, _recipient, 0, _nonce);
+        uint64 sequence = wormholeTokenBridgeContract.transferTokens(lockedTokenData._wormholeToken, amountToLock, lockedTokenData._recipientChain, 
+            lockedTokenData._recipient, 0, lockedTokenData._nonce);
         return sequence;
 
     } // end of redeem Token
