@@ -251,8 +251,9 @@ contract AtlasDexSwap is Ownable {
      * @param _wormholeBridgeToken  a wormhole bridge where fromw need to redeem token
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
+     * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function redeemTokens(address _wormholeBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData) external returns (bool) {
+    function unlockTokens(address _wormholeBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData) external returns (uint256) {
         // initiate wormhole bridge contract        
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
 
@@ -266,13 +267,6 @@ contract AtlasDexSwap is Ownable {
 
         wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
 
-
-        if(_1inchData.length == 1) {
-            return true;
-        }
-        (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
-
-
         // query decimals
         (,bytes memory queriedDecimals) = address(transferToken).staticcall(abi.encodeWithSignature("decimals()"));
         uint8 decimals = abi.decode(queriedDecimals, (uint8));
@@ -282,20 +276,19 @@ contract AtlasDexSwap is Ownable {
             transferAmount *= 10 ** (decimals - 8);
         }
 
-        require(swapDescriptionObj.amount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
-        require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
-
-
-        transferToken.safeTransferFrom(msg.sender, address(this), transferAmount);
-        if (swapDescriptionObj.srcToken.allowance(address(this), oneInchAggregatorRouter) < swapDescriptionObj.amount) {
-            swapDescriptionObj.srcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
+        uint256 amountTransfer;
+        if(_1inchData.length > 0) {
+            (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
+            require(swapDescriptionObj.amount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
+            require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
+            amountTransfer = _swapToken1Inch(_1inchData);
+        } else if (_0xData.length > 0) {
+            ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
+            require(swapDescriptionObj.inputTokenAmount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
+            require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
+            amountTransfer = _swapToken0x(_0xData);
         }
-        (bool success,) = address(oneInchAggregatorRouter).call(_1inchData);
-        if (!success) {
-            revert();
-        }
-
-        return true;
+        return amountTransfer;
 
     } // end of redeem Token
 
@@ -324,7 +317,7 @@ contract AtlasDexSwap is Ownable {
             amountToLock = _swapToken1Inch(lockedTokenData._1inchData);
         } // end of if for 1 inch data. 
         else if(lockedTokenData._0xData.length > 1) { // it means user need to first convert token to wormhole token.
-        ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(lockedTokenData._0xData[4:], (_0xSwapDescription));
+            ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(lockedTokenData._0xData[4:], (_0xSwapDescription));
             require(swapDescriptionObj.outputToken == address(wormholeWrappedToken), "Atlas DEX: Dest Token Not Matched");        
             amountToLock = _swapToken0x(lockedTokenData._0xData);
         } // end of if for 1 inch data. 
