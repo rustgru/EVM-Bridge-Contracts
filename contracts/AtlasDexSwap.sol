@@ -78,6 +78,7 @@ function parseAndVerifyVM(bytes calldata encodedVM) public virtual view returns 
  * @dev Wormhole bridge functions to call them for swaping
  */
 abstract contract IBridgeWormhole {
+    function wrappedAsset(uint16 tokenChainId, bytes32 tokenAddress) public view virtual returns (address);
     function tokenImplementation() public view virtual returns (address);
     function chainId() public view virtual returns  (uint16);
     function wormhole() public view virtual returns  (address);
@@ -248,14 +249,14 @@ contract AtlasDexSwap is Ownable {
 
     /**
      * @dev Initate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
-     * @param _wormholeBridgeToken  a wormhole bridge where fromw need to redeem token
+     * @param _wormholeTokenBridgeToken  a wormhole bridge where fromw need to redeem token
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
-     * @param _1inchData a 1inch data to call aggregate router to swap assets.
+     * @param _0xData a 1inch data to call aggregate router to swap assets.
      */
-    function unlockTokens(address _wormholeBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData) external returns (uint256) {
+    function unlockTokens(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData) external payable returns (uint256) {
         // initiate wormhole bridge contract        
-        IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeBridgeToken);
+        IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeTokenBridgeToken);
 
         // initiate wormhole contract        
         IWormhole wormholeContract = IWormhole(wormholeTokenBridgeContract.wormhole());
@@ -263,28 +264,27 @@ contract AtlasDexSwap is Ownable {
         (WormholeStructs.VM memory vm, ,) = wormholeContract.parseAndVerifyVM(_encodedVAA);
 
         WormholeStructs.Transfer memory transfer = wormholeTokenBridgeContract.parseTransfer(vm.payload);
-        IERC20 transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
 
+        
+        IERC20 transferToken;
+        if (transfer.tokenChain == wormholeTokenBridgeContract.chainId()) {
+            transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
+        } else {
+            address wrapped = wormholeTokenBridgeContract.wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
+            require(wrapped != address(0), "AtlasDex: no wrapper for this token created yet");
+
+            transferToken = IERC20(wrapped);
+        }
         wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
 
-        // query decimals
-        (,bytes memory queriedDecimals) = address(transferToken).staticcall(abi.encodeWithSignature("decimals()"));
-        uint8 decimals = abi.decode(queriedDecimals, (uint8));
-        uint256 transferAmount = transfer.amount;
-
-         if (decimals > 8) {
-            transferAmount *= 10 ** (decimals - 8);
-        }
 
         uint256 amountTransfer;
-        if(_1inchData.length > 0) {
+        if(_1inchData.length > 1) {
             (, SwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapDescription, bytes));
-            require(swapDescriptionObj.amount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
             require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
             amountTransfer = _swapToken1Inch(_1inchData);
-        } else if (_0xData.length > 0) {
+        } else if (_0xData.length > 1) {
             ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
-            require(swapDescriptionObj.inputTokenAmount == transferAmount, "Atlas DEX: Amount Not match with Redeem Amount.");
             require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
             amountTransfer = _swapToken0x(_0xData);
         }
@@ -323,15 +323,22 @@ contract AtlasDexSwap is Ownable {
         } // end of if for 1 inch data. 
 
 
+
         require(wormholeWrappedToken.balanceOf(msg.sender) >= amountToLock, "Atlas DEX: You have low balance to lock.");
 
         wormholeWrappedToken.safeTransferFrom(msg.sender, address(this), amountToLock);
 
+        // query tokens decimals
+        (,bytes memory queriedDecimals) = address(wormholeWrappedToken).staticcall(abi.encodeWithSignature("decimals()"));
+        uint8 decimals = abi.decode(queriedDecimals, (uint8));
+
+        uint256 amountForWormhole = deNormalizeAmount(normalizeAmount(amountToLock, decimals), decimals);
+
         if (wormholeWrappedToken.allowance(address(this), lockedTokenData._wormholeBridgeToken) < amountToLock) {
             wormholeWrappedToken.safeApprove(lockedTokenData._wormholeBridgeToken, MAX_INT);
         }
-        emit AmountLocked(msg.sender, amountToLock);
-        uint64 sequence = wormholeTokenBridgeContract.transferTokens(lockedTokenData._wormholeToken, amountToLock, lockedTokenData._recipientChain, 
+        emit AmountLocked(msg.sender, amountForWormhole);
+        uint64 sequence = wormholeTokenBridgeContract.transferTokens(lockedTokenData._wormholeToken, amountForWormhole, lockedTokenData._recipientChain, 
             lockedTokenData._recipient, 0, lockedTokenData._nonce);
         return sequence;
 
@@ -339,4 +346,18 @@ contract AtlasDexSwap is Ownable {
 
     receive() external payable {}
 
+
+    function normalizeAmount(uint256 amount, uint8 decimals) internal pure returns(uint256){
+        if (decimals > 8) {
+            amount /= 10 ** (decimals - 8);
+        }
+        return amount;
+    }
+
+    function deNormalizeAmount(uint256 amount, uint8 decimals) internal pure returns(uint256){
+        if (decimals > 8) {
+            amount *= 10 ** (decimals - 8);
+        }
+        return amount;
+    }
 } // end of class
