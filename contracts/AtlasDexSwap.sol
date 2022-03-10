@@ -88,6 +88,11 @@ abstract contract IBridgeWormhole {
     function transferTokens(address token, uint256 amount, uint16 recipientChain, bytes32 recipient, uint256 arbiterFee, uint32 nonce) public virtual payable returns (uint64 sequence) ;
 }
 
+// A partial WETH interfaec.
+interface IWETH is IERC20 {
+    function deposit() external payable;
+    function withdraw(uint wad) external;
+}
 
 /**
  * @title AtlasDexSwap
@@ -119,10 +124,12 @@ contract AtlasDexSwap is Ownable {
     address public oneInchAggregatorRouter;
     address public OxAggregatorRouter;
     address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address public NATIVE_WRAPPED_ADDRESS = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // bsc address
     uint256 MAX_INT = 2**256 - 1;
 
     event AmountLocked (address indexed dstReceiver, uint256 amountReceived);
-    constructor() {
+    constructor(address nativeWrappedAddress) {
+        NATIVE_WRAPPED_ADDRESS = nativeWrappedAddress;
         oneInchAggregatorRouter = 0x1111111254fb6c44bAC0beD2854e76F90643097d;
         OxAggregatorRouter = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF;
     }
@@ -132,6 +139,10 @@ contract AtlasDexSwap is Ownable {
         return true;
     }
 
+    function updateNativeWrappedAddress (address _newWrappedAddress) external onlyOwner returns (bool) {
+        NATIVE_WRAPPED_ADDRESS = _newWrappedAddress;
+        return true;
+    }
     function update0xAggregationRouter (address _newRouter) external onlyOwner returns (bool) {
         OxAggregatorRouter = _newRouter;
         return true;
@@ -153,7 +164,30 @@ contract AtlasDexSwap is Ownable {
     function approveSelfTokens (address erc20Address, address spender,  uint256 _approvalAmount) external onlyOwner {
         IERC20(erc20Address).safeApprove(spender, _approvalAmount);
     }
-    
+
+    /**
+     * @dev Withdraw Tokens on Wrapped. 
+     */
+    function withdrawToUnWrappedToken(uint256 _tokenAmount) internal returns (uint256) {
+        IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
+        require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficent balance to UnWrap");
+        wrapped.transferFrom(msg.sender, address(this), _tokenAmount);
+        //:TODO here deduct 0.15 percent.
+        wrapped.withdraw(_tokenAmount);
+        payable(msg.sender).transfer(_tokenAmount);
+        return  _tokenAmount;
+    } // end of deposit ToWrappedToken.    
+    /**
+     * @dev Deposit Tokens on Wrapped. 
+     */
+    function depositToWrappedToken() internal returns (uint256) {
+        require(msg.value > 0, "Atlas Dex: Amount should be greater than 0 to deposit for wrapped.");
+        IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
+        wrapped.deposit{value: msg.value}();
+        //:TODO here deduct 0.15 percent.
+        wrapped.transfer(msg.sender, msg.value);
+        return  msg.value;
+    } // end of deposit ToWrappedToken.
     /**
      * @dev Swap Tokens on 0x. 
      * @param _0xData a 0x data to call aggregate router to swap assets.
@@ -176,6 +210,8 @@ contract AtlasDexSwap is Ownable {
             // It means we are trying to transfer with Native amount
             require(msg.value >= swapDescriptionObj.inputTokenAmount, "Atlas DEX: Amount Not match with Swap Amount.");
         } else {
+
+            
             IERC20 swapSrcToken = IERC20(swapDescriptionObj.inputToken);
             if (swapSrcToken.allowance(address(this), OxAggregatorRouter) < swapDescriptionObj.inputTokenAmount) {
                 swapSrcToken.safeApprove(OxAggregatorRouter, MAX_INT);
@@ -222,7 +258,7 @@ contract AtlasDexSwap is Ownable {
                 swapSrcToken.safeApprove(oneInchAggregatorRouter, MAX_INT);
             }
 
-            require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.amount, "Atlas DEX: You have insufficent balance to swap");
+            require(swapSrcToken.balanceOf(msg.sender) >= swapDescriptionObj.amount, "Atlas DEX: You have insufficient balance to swap");
             swapSrcToken.safeTransferFrom(msg.sender, address(this), swapDescriptionObj.amount);
         }
 
@@ -238,23 +274,28 @@ contract AtlasDexSwap is Ownable {
      * @dev Swap Tokens on Chain. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      */
-    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData) external payable returns (uint256) {
+    function swapTokens(bytes calldata _1inchData, bytes calldata _0xData, bool _IsWrapped, bool _IsUnWrapped, uint256 _amount) external payable returns (uint256) {
         if(_1inchData.length > 1) {
             return _swapToken1Inch(_1inchData);
-        } else {
+        } else if (_0xData.length > 1) {
             return _swapToken0x(_0xData);
+        } else if (_IsWrapped) {
+            return depositToWrappedToken();
+        } else if ( _IsUnWrapped) {
+            return withdrawToUnWrappedToken(_amount);
         }
+        return 0;
 
     }
 
     /**
-     * @dev Initate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
+     * @dev Initiate a wormhole bridge redeem call to unlock asset and then call 1inch router to swap tokens with unlocked balance.
      * @param _wormholeTokenBridgeToken  a wormhole bridge where fromw need to redeem token
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
      * @param _0xData a 1inch data to call aggregate router to swap assets.
      */
-    function unlockTokens(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData) external payable returns (uint256) {
+    function unlockTokens(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData, bool _IsWrapped, bool _IsUnWrapped, uint256 _amount) external payable returns (uint256) {
         // initiate wormhole bridge contract        
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeTokenBridgeToken);
 
@@ -288,6 +329,11 @@ contract AtlasDexSwap is Ownable {
             require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
             amountTransfer = _swapToken0x(_0xData);
         }
+        else if (_IsWrapped) {
+            amountTransfer =  depositToWrappedToken();
+        } else if ( _IsUnWrapped) {
+            amountTransfer = withdrawToUnWrappedToken(_amount);
+        }
         return amountTransfer;
 
     } // end of redeem Token
@@ -301,6 +347,9 @@ contract AtlasDexSwap is Ownable {
         uint32 _nonce;
         bytes _1inchData;
         bytes _0xData;
+        bool _IsWrapped;
+        bool _IsUnWrapped;
+        uint256 _amountToUnwrap;
     }
     /**
      * @dev Initiate a 1inch/_0x router to swap tokens and then wormhole bridge call to lock asset.
@@ -321,7 +370,11 @@ contract AtlasDexSwap is Ownable {
             require(swapDescriptionObj.outputToken == address(wormholeWrappedToken), "Atlas DEX: Dest Token Not Matched");        
             amountToLock = _swapToken0x(lockedTokenData._0xData);
         } // end of if for 1 inch data. 
-
+        else if (lockedTokenData._IsWrapped) {
+            amountToLock =  depositToWrappedToken();
+        } else if ( lockedTokenData._IsUnWrapped) {
+            amountToLock = withdrawToUnWrappedToken(lockedTokenData._amountToUnwrap);
+        }
 
 
         require(wormholeWrappedToken.balanceOf(msg.sender) >= amountToLock, "Atlas DEX: You have low balance to lock.");
