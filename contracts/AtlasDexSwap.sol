@@ -170,7 +170,7 @@ contract AtlasDexSwap is Ownable {
      */
     function withdrawToUnWrappedToken(uint256 _tokenAmount) internal returns (uint256) {
         IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
-        require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficent balance to UnWrap");
+        require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficient balance to UnWrap");
         wrapped.transferFrom(msg.sender, address(this), _tokenAmount);
         //:TODO here deduct 0.15 percent.
         wrapped.withdraw(_tokenAmount);
@@ -195,6 +195,12 @@ contract AtlasDexSwap is Ownable {
     function _swapToken0x(bytes calldata _0xData) internal returns (uint256) {
 
         ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
+         if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
+                ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(_0xData[4:], (address[], uint256, uint256, uint8));
+                swapDescriptionObj.inputToken = tokens[0];
+                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.inputTokenAmount = sellAmount;
+        }
         uint256 outputCurrencyBalanceBeforeSwap = 0;
 
         // this if else is to save output token balance
@@ -210,8 +216,6 @@ contract AtlasDexSwap is Ownable {
             // It means we are trying to transfer with Native amount
             require(msg.value >= swapDescriptionObj.inputTokenAmount, "Atlas DEX: Amount Not match with Swap Amount.");
         } else {
-
-            
             IERC20 swapSrcToken = IERC20(swapDescriptionObj.inputToken);
             if (swapSrcToken.allowance(address(this), OxAggregatorRouter) < swapDescriptionObj.inputTokenAmount) {
                 swapSrcToken.safeApprove(OxAggregatorRouter, MAX_INT);
@@ -326,7 +330,16 @@ contract AtlasDexSwap is Ownable {
             amountTransfer = _swapToken1Inch(_1inchData);
         } else if (_0xData.length > 1) {
             ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (_0xSwapDescription));
+ 
+
+            if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
+                ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(_0xData[4:], (address[], uint256, uint256, uint8));
+                swapDescriptionObj.inputToken = tokens[0];
+                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.inputTokenAmount = sellAmount;
+            }
             require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
+
             amountTransfer = _swapToken0x(_0xData);
         }
         else if (_IsWrapped) {
@@ -367,6 +380,12 @@ contract AtlasDexSwap is Ownable {
         } // end of if for 1 inch data. 
         else if(lockedTokenData._0xData.length > 1) { // it means user need to first convert token to wormhole token.
             ( _0xSwapDescription memory swapDescriptionObj) = abi.decode(lockedTokenData._0xData[4:], (_0xSwapDescription));
+            if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
+                ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(lockedTokenData._0xData[4:], (address[], uint256, uint256, uint8));
+                swapDescriptionObj.inputToken = tokens[0];
+                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.inputTokenAmount = sellAmount;
+            }
             require(swapDescriptionObj.outputToken == address(wormholeWrappedToken), "Atlas DEX: Dest Token Not Matched");        
             amountToLock = _swapToken0x(lockedTokenData._0xData);
         } // end of if for 1 inch data. 
