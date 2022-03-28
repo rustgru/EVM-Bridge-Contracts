@@ -198,7 +198,7 @@ contract AtlasDexSwap is Ownable {
          if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
                 ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(_0xData[4:], (address[], uint256, uint256, uint8));
                 swapDescriptionObj.inputToken = tokens[0];
-                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.outputToken = tokens[tokens.length - 1];
                 swapDescriptionObj.inputTokenAmount = sellAmount;
         }
         uint256 outputCurrencyBalanceBeforeSwap = 0;
@@ -274,6 +274,7 @@ contract AtlasDexSwap is Ownable {
         (uint returnAmount, ) = abi.decode(_returnData, (uint, uint));
         return returnAmount;
     } // end of swap function
+
     /**
      * @dev Swap Tokens on Chain. 
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
