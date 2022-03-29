@@ -101,6 +101,7 @@ interface IWETH is IERC20 {
  */
 contract AtlasDexSwap is Ownable {
     using SafeERC20 for IERC20;
+    using SafeERC20 for IWETH;
 
     struct SwapDescription {
         IERC20 srcToken;
@@ -126,26 +127,26 @@ contract AtlasDexSwap is Ownable {
     address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address public NATIVE_WRAPPED_ADDRESS = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // bsc address
     uint256 MAX_INT = 2**256 - 1;
-
+    uint256 public FEE_PERCENT = 15; // we will use 15
+    uint256 public FEE_PERCENT_DENOMINATOR = 10000; // 
+    address public FEE_COLLECTOR;
     event AmountLocked (address indexed dstReceiver, uint256 amountReceived);
-    constructor(address nativeWrappedAddress) {
+    constructor(address nativeWrappedAddress, address _feeCollector) {
+        require(nativeWrappedAddress != address(0), "Atlas Dex: Invalid Wrapped address");
+        require(_feeCollector != address(0), "Atlas Dex: Fee Collector Invalid");         
+        FEE_COLLECTOR = _feeCollector;
         NATIVE_WRAPPED_ADDRESS = nativeWrappedAddress;
         oneInchAggregatorRouter = 0x1111111254fb6c44bAC0beD2854e76F90643097d;
         OxAggregatorRouter = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF;
     }
-
-    function update1inchAggregationRouter (address _newRouter) external onlyOwner returns (bool) {
-        oneInchAggregatorRouter = _newRouter;
-        return true;
+    
+    function updateFeeCollector(address _feeCollector) external onlyOwner {
+        require(_feeCollector != address(0), "Atlas Dex: Fee Collector Invalid");         
+        FEE_COLLECTOR = _feeCollector;
     }
 
-    function updateNativeWrappedAddress (address _newWrappedAddress) external onlyOwner returns (bool) {
-        NATIVE_WRAPPED_ADDRESS = _newWrappedAddress;
-        return true;
-    }
-    function update0xAggregationRouter (address _newRouter) external onlyOwner returns (bool) {
-        OxAggregatorRouter = _newRouter;
-        return true;
+    function updateFeePercent(uint256 _feePercent) external onlyOwner {
+        FEE_PERCENT = _feePercent;
     }
     
     function withdrawIfAnyEthBalance(address payable receiver) external onlyOwner returns (uint256) {
@@ -154,10 +155,10 @@ contract AtlasDexSwap is Ownable {
         return balance;
     }
     
-    function withdrawIfAnyTokenBalance(address contractAddress, address payable receiver) external onlyOwner returns (uint256) {
+    function withdrawIfAnyTokenBalance(address contractAddress, address receiver) external onlyOwner returns (uint256) {
         IERC20 token = IERC20(contractAddress);
         uint256 balance = token.balanceOf(address(this));
-        token.transfer(receiver, balance);
+        token.safeTransfer(receiver, balance);
         return balance;
     }
 
@@ -171,10 +172,12 @@ contract AtlasDexSwap is Ownable {
     function withdrawToUnWrappedToken(uint256 _tokenAmount) internal returns (uint256) {
         IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
         require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficient balance to UnWrap");
-        wrapped.transferFrom(msg.sender, address(this), _tokenAmount);
-        //:TODO here deduct 0.15 percent.
+        wrapped.safeTransferFrom(msg.sender, address(this), _tokenAmount);
         wrapped.withdraw(_tokenAmount);
-        payable(msg.sender).transfer(_tokenAmount);
+        // First Calculating here deduct 0.15 percent.
+        uint256 feeDeductionAmount = (_tokenAmount * FEE_PERCENT) / FEE_PERCENT_DENOMINATOR;
+        payable(FEE_COLLECTOR).transfer(feeDeductionAmount);
+        payable(msg.sender).transfer((_tokenAmount - feeDeductionAmount));
         return  _tokenAmount;
     } // end of deposit ToWrappedToken.    
     /**
@@ -184,9 +187,12 @@ contract AtlasDexSwap is Ownable {
         require(msg.value > 0, "Atlas Dex: Amount should be greater than 0 to deposit for wrapped.");
         IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
         wrapped.deposit{value: msg.value}();
-        //:TODO here deduct 0.15 percent.
-        wrapped.transfer(msg.sender, msg.value);
-        return  msg.value;
+        // First Calculating here deduct 0.15 percent.
+        uint256 feeDeductionAmount = (msg.value * FEE_PERCENT) / FEE_PERCENT_DENOMINATOR;
+        wrapped.transfer(FEE_COLLECTOR, feeDeductionAmount);
+
+        wrapped.transfer(msg.sender, (msg.value - feeDeductionAmount));
+        return  msg.value - feeDeductionAmount;
     } // end of deposit ToWrappedToken.
     /**
      * @dev Swap Tokens on 0x. 
@@ -301,7 +307,8 @@ contract AtlasDexSwap is Ownable {
      * @param _0xData a 1inch data to call aggregate router to swap assets.
      */
     function unlockTokens(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData, bool _IsWrapped, bool _IsUnWrapped, uint256 _amount) external payable returns (uint256) {
-        // initiate wormhole bridge contract        
+        // initiate wormhole bridge contract  
+        require(_wormholeTokenBridgeToken != address(0), "Atlas Dex: Wormhole Token Bride Address can't be null");      
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(_wormholeTokenBridgeToken);
 
         // initiate wormhole contract        
@@ -336,7 +343,7 @@ contract AtlasDexSwap is Ownable {
             if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
                 ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(_0xData[4:], (address[], uint256, uint256, uint8));
                 swapDescriptionObj.inputToken = tokens[0];
-                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.outputToken = tokens[tokens.length - 1];
                 swapDescriptionObj.inputTokenAmount = sellAmount;
             }
             require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
@@ -371,6 +378,8 @@ contract AtlasDexSwap is Ownable {
      */
     function lockedTokens( LockedToken calldata lockedTokenData) external payable returns (uint64) {
         // initiate wormhole bridge contract        
+        require(lockedTokenData._wormholeBridgeToken != address(0), "Atlas Dex: Wormhole Token Bride Address can't be null");      
+
         IBridgeWormhole wormholeTokenBridgeContract =  IBridgeWormhole(lockedTokenData._wormholeBridgeToken);
         IERC20 wormholeWrappedToken = IERC20(lockedTokenData._wormholeToken);
         uint256 amountToLock = lockedTokenData._amount; 
@@ -384,7 +393,7 @@ contract AtlasDexSwap is Ownable {
             if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
                 ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(lockedTokenData._0xData[4:], (address[], uint256, uint256, uint8));
                 swapDescriptionObj.inputToken = tokens[0];
-                swapDescriptionObj.outputToken = tokens[1];
+                swapDescriptionObj.outputToken = tokens[tokens.length - 1];
                 swapDescriptionObj.inputTokenAmount = sellAmount;
             }
             require(swapDescriptionObj.outputToken == address(wormholeWrappedToken), "Atlas DEX: Dest Token Not Matched");        
@@ -411,8 +420,7 @@ contract AtlasDexSwap is Ownable {
             wormholeWrappedToken.safeApprove(lockedTokenData._wormholeBridgeToken, MAX_INT);
         }
         emit AmountLocked(msg.sender, amountForWormhole);
-        uint64 sequence = wormholeTokenBridgeContract.transferTokens(lockedTokenData._wormholeToken, amountForWormhole, lockedTokenData._recipientChain, 
-            lockedTokenData._recipient, 0, lockedTokenData._nonce);
+        uint64 sequence = wormholeTokenBridgeContract.transferTokens(lockedTokenData._wormholeToken, amountForWormhole, lockedTokenData._recipientChain, lockedTokenData._recipient, 0, lockedTokenData._nonce);
         return sequence;
 
     } // end of redeem Token
