@@ -146,6 +146,7 @@ contract AtlasDexSwap is Ownable {
     }
 
     function updateFeePercent(uint256 _feePercent) external onlyOwner {
+        require(_feePercent <= 3000, "Atlas Dex:  Fee can't be more than 0.3% on one side.");
         FEE_PERCENT = _feePercent;
     }
     
