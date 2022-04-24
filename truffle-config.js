@@ -1,11 +1,16 @@
 const HDWalletProvider = require("@truffle/hdwallet-provider");
 require('dotenv').config();
 
-console.log('POLYGONSCAN_API_KEY', process.env.POLYGONSCAN_API_KEY);
 module.exports = {
   compilers: {
        solc: {
-          version: "^0.8.0"
+          version: "^0.8.0",
+          settings: {
+            optimizer: {
+              enabled: true,
+              runs: 200
+            }
+          }
        }
   },
   // See <http://truffleframework.com/docs/advanced/configuration>
