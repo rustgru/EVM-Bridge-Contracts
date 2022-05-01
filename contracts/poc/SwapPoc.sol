@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 
 contract WormholeStructs {
@@ -82,7 +83,7 @@ abstract contract IWormhole {
  * @dev Proxy contract to swap first Native to Native Using wormhole messaging.
  * successful.
  */
-contract AtlasDexSwapPOC is Ownable {
+contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct AtlasDexSwapTransfer {
@@ -90,11 +91,11 @@ contract AtlasDexSwapPOC is Ownable {
         // Amount being transferred (big-endian uint256)
         uint256 amount;
         // Address of the token. Left-zero-padded if shorter than 32 bytes
-        address tokenAddress;
+        bytes32 tokenAddress;
         // Chain ID of the token
         uint16 tokenChain;
         // Address of the recipient. Left-zero-padded if shorter than 32 bytes
-        address to;
+        bytes32 to;
         // Chain ID of the recipient
         uint16 toChain;
         // Amount of tokens (big-endian uint256) that the user is willing to pay as relayer fee. Must be <= Amount.
@@ -109,7 +110,7 @@ contract AtlasDexSwapPOC is Ownable {
     mapping(uint16 => bytes32) emitterImplementations;
     
     // Mapping of wrapped assets (chainID => nativeAddress => wrappedAddress)
-    mapping(uint16 => mapping(address => address)) wrappedAssets;
+    mapping(uint16 => mapping(bytes32 => address)) wrappedAssets;
     
     // Current Chain ID
     uint16 CHAIN_ID;
@@ -124,10 +125,88 @@ contract AtlasDexSwapPOC is Ownable {
         CHAIN_ID = _CHAIN_ID;
     }
 
+    function setupEmitter(bytes32 emitterAddress, uint16 emitterChainId) external onlyOwner returns (bool) {
+        emitterImplementations[emitterChainId] = emitterAddress;
+        return true;
+    }
+
+    function setupWrappedAsset(uint16 tokenChainId, bytes32 tokenAddress, address wrappedAssetAddress) external onlyOwner returns (bool) {
+        wrappedAssets[tokenChainId][tokenAddress] = wrappedAssetAddress;
+        return true;
+    }
+
     function broadcastMessage ( uint32 nonce, bytes memory payload, uint8 consistencyLevel) external  payable returns (uint64 sequence){
         sequence = WORMHOLE_CONTRACT.publishMessage(nonce, payload, consistencyLevel);
     }
-    function unlockStableTokens(bytes memory encodedVm) external returns (address) {
+
+    function addressToBytes32(address _toConvert) external pure returns (bytes32 _converted) {
+        _converted = bytes32(uint256(uint160(_toConvert)));
+    }
+    /**
+    * Lock Tokens
+    */
+    function lockStableToken(address token, uint256 amount, uint16 recipientChain, bytes32 recipient, uint32 nonce) public payable nonReentrant returns (uint64 sequence) {
+        uint16 tokenChain = chainId();
+        bytes32 tokenAddress = bytes32(uint256(uint160(token)));
+        
+        // query tokens decimals
+        (,bytes memory queriedDecimals) = token.staticcall(abi.encodeWithSignature("decimals()"));
+        uint8 decimals = abi.decode(queriedDecimals, (uint8));
+
+        // don't deposit dust that can not be bridged due to the decimal shift
+        amount = deNormalizeAmount(normalizeAmount(amount, decimals), decimals);
+
+        // query own token balance before transfer
+        (,bytes memory queriedBalanceBefore) = token.staticcall(abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)));
+        uint256 balanceBefore = abi.decode(queriedBalanceBefore, (uint256));
+
+        // transfer tokens
+        SafeERC20.safeTransferFrom(IERC20(token), msg.sender, address(this), amount);
+
+        // query own token balance after transfer
+        (,bytes memory queriedBalanceAfter) = token.staticcall(abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)));
+        uint256 balanceAfter = abi.decode(queriedBalanceAfter, (uint256));
+
+        // correct amount for potential transfer fees
+        amount = balanceAfter - balanceBefore;
+
+        // normalize amounts decimals
+        uint256 normalizedAmount = normalizeAmount(amount, decimals);
+
+        AtlasDexSwapTransfer memory transfer = AtlasDexSwapTransfer({
+            amount : normalizedAmount,
+            tokenAddress : tokenAddress,
+            tokenChain : tokenChain,
+            to : recipient,
+            toChain : recipientChain,
+            fee : 0
+        });
+        sequence = logTransfer( transfer, nonce);
+    } // END OF LOCKED_TOKEN
+
+    function logTransfer(AtlasDexSwapTransfer memory transfer, uint32 nonce) internal returns (uint64 sequence) {
+
+        bytes memory encoded = encodeTransfer(transfer);
+
+        sequence = WORMHOLE_CONTRACT.publishMessage{
+            value : msg.value
+        }(nonce, encoded, 1);
+    }
+    
+    function encodeTransfer(AtlasDexSwapTransfer memory transfer) public pure returns (bytes memory encoded) {
+        encoded = abi.encodePacked(
+            transfer.amount,
+            transfer.tokenAddress,
+            transfer.tokenChain,
+            transfer.to,
+            transfer.toChain,
+            transfer.fee
+        );
+    }
+    /**
+    * Unlock Tokens
+    */
+    function unlockStableTokens(bytes memory encodedVm) external returns (bool) {
         (WormholeStructs.VM memory vm, bool valid, string memory reason) = WORMHOLE_CONTRACT.parseAndVerifyVM(encodedVm);
 
         require(valid, reason);
@@ -141,8 +220,6 @@ contract AtlasDexSwapPOC is Ownable {
 
         require(transfer.toChain == chainId(), "invalid target chain");
 
-        // require(wrapped != address(0), "no wrapper for this token created yet");
-
         address wrapped = wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
         require(wrapped != address(0), "no wrapper for this token created yet");
 
@@ -154,9 +231,12 @@ contract AtlasDexSwapPOC is Ownable {
         // adjust decimals
         uint256 transferAmount = deNormalizeAmount(transfer.amount, decimals);
 
-        SafeERC20.safeTransfer(transferToken, transfer.to, transferAmount);
-        return transfer.to;
+        address transferRecipient = address(uint160(uint256(transfer.to)));
+
+        SafeERC20.safeTransfer(transferToken, transferRecipient, transferAmount);
+        return true;
     }
+
     function withdrawIfAnyEthBalance(address payable receiver) external onlyOwner returns (uint256) {
         uint256 balance = address(this).balance;
         receiver.transfer(balance);
@@ -208,7 +288,7 @@ contract AtlasDexSwapPOC is Ownable {
         return CHAIN_ID;
     }
 
-    function wrappedAsset(uint16 tokenChainId, address tokenAddress) public view returns (address){
+    function wrappedAsset(uint16 tokenChainId, bytes32 tokenAddress) public view returns (address){
         return wrappedAssets[tokenChainId][tokenAddress];
     }
 } // end of class
