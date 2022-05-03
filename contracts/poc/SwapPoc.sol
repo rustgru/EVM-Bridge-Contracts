@@ -6,10 +6,12 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+import "../libraries/external/BytesLib.sol";
 
 contract WormholeStructs {
     struct Transfer {
@@ -17,14 +19,22 @@ contract WormholeStructs {
         uint8 payloadID;
         // Amount being transferred (big-endian uint256)
         uint256 amount;
+        
         // Address of the token. Left-zero-padded if shorter than 32 bytes
         bytes32 tokenAddress;
+        
+        // Address of the destination token. Left-zero-padded if shorter than 32 bytes
+        bytes32 destTokenAddress;
+
         // Chain ID of the token
         uint16 tokenChain;
+        
         // Address of the recipient. Left-zero-padded if shorter than 32 bytes
         bytes32 to;
+        
         // Chain ID of the recipient
         uint16 toChain;
+        
         // Amount of tokens (big-endian uint256) that the user is willing to pay as relayer fee. Must be <= Amount.
         uint256 fee;
     }
@@ -85,13 +95,31 @@ abstract contract IWormhole {
  */
 contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using BytesLib for bytes;
+    using SafeMath for uint256;
+
+    // Info of each user for stake.
+    struct UserInfo {
+        uint256 amount; // How many tokens the user has provided.
+    }
+
+    // Info of each user that stakes tokens.
+    mapping(address => mapping(address => UserInfo)) public userInfo;
+
+    event Deposit(address indexed token, address indexed user, uint256 amount);
+    event Withdraw(address indexed token, address indexed user, uint256 amount);
 
     struct AtlasDexSwapTransfer {
-
+        // PayloadID uint8 = 1
+        uint8 payloadID;
         // Amount being transferred (big-endian uint256)
         uint256 amount;
         // Address of the token. Left-zero-padded if shorter than 32 bytes
         bytes32 tokenAddress;
+                
+        // Address of the destination token. Left-zero-padded if shorter than 32 bytes
+        bytes32 destTokenAddress;
+
         // Chain ID of the token
         uint16 tokenChain;
         // Address of the recipient. Left-zero-padded if shorter than 32 bytes
@@ -115,14 +143,33 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
     // Current Chain ID
     uint16 CHAIN_ID;
 
-    address public NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     IWormhole public WORMHOLE_CONTRACT;
-
-    uint256 MAX_INT = 2**256 - 1;
 
     constructor(address _wormhole, uint16 _CHAIN_ID) {
         WORMHOLE_CONTRACT = IWormhole(_wormhole);
         CHAIN_ID = _CHAIN_ID;
+    }
+
+    // Deposit tokens for TOKEN rewards.
+    function deposit(address token, uint256 _amount) external nonReentrant{
+        UserInfo storage user = userInfo[token][msg.sender];
+
+        if (_amount > 0) {
+            SafeERC20.safeTransferFrom(IERC20(token), msg.sender, address(this), _amount);
+            user.amount = user.amount.add(_amount);
+        }
+        emit Deposit(token, msg.sender, _amount);
+    }
+
+    // Withdraw tokens.
+    function withdraw(address _token, uint256 _amount) external nonReentrant{
+        UserInfo storage user = userInfo[_token][msg.sender];
+        require(user.amount >= _amount, "withdraw: not good");
+        if (_amount > 0) {
+            user.amount = user.amount.sub(_amount);
+            SafeERC20.safeTransfer(IERC20(_token), msg.sender, _amount);
+        }
+        emit Withdraw(_token, msg.sender, _amount);
     }
 
     function setupEmitter(bytes32 emitterAddress, uint16 emitterChainId) external onlyOwner returns (bool) {
@@ -135,20 +182,32 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
         return true;
     }
 
-    function broadcastMessage ( uint32 nonce, bytes memory payload, uint8 consistencyLevel) external  payable returns (uint64 sequence){
-        sequence = WORMHOLE_CONTRACT.publishMessage(nonce, payload, consistencyLevel);
-    }
-
     function addressToBytes32(address _toConvert) external pure returns (bytes32 _converted) {
         _converted = bytes32(uint256(uint160(_toConvert)));
     }
     /**
     * Lock Tokens
     */
-    function lockStableToken(address token, uint256 amount, uint16 recipientChain, bytes32 recipient, uint32 nonce) public payable nonReentrant returns (uint64 sequence) {
+    function lockStableToken(address token, address destToken,  uint256 amount, uint16 recipientChain, bytes32 recipient, uint32 nonce) public payable nonReentrant returns (uint64 sequence) {
         uint16 tokenChain = chainId();
         bytes32 tokenAddress = bytes32(uint256(uint160(token)));
+        bytes32 destTokenAddress = bytes32(uint256(uint160(destToken)));
         
+        uint256 normalizedAmount = lockTokensToContract(token, amount);
+        AtlasDexSwapTransfer memory transfer = AtlasDexSwapTransfer({
+            payloadID : 1,
+            amount : normalizedAmount,
+            tokenAddress : tokenAddress,
+            destTokenAddress: destTokenAddress,
+            tokenChain : tokenChain,
+            to : recipient,
+            toChain : recipientChain,
+            fee : 0
+        });
+        sequence = logTransfer( transfer, nonce);
+    } // END OF LOCKED_TOKEN
+
+    function lockTokensToContract (address token, uint256 amount) internal returns (uint256 normalizedAmount) {
         // query tokens decimals
         (,bytes memory queriedDecimals) = token.staticcall(abi.encodeWithSignature("decimals()"));
         uint8 decimals = abi.decode(queriedDecimals, (uint8));
@@ -171,38 +230,31 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
         amount = balanceAfter - balanceBefore;
 
         // normalize amounts decimals
-        uint256 normalizedAmount = normalizeAmount(amount, decimals);
+        normalizedAmount = normalizeAmount(amount, decimals);
 
-        AtlasDexSwapTransfer memory transfer = AtlasDexSwapTransfer({
-            amount : normalizedAmount,
-            tokenAddress : tokenAddress,
-            tokenChain : tokenChain,
-            to : recipient,
-            toChain : recipientChain,
-            fee : 0
-        });
-        sequence = logTransfer( transfer, nonce);
-    } // END OF LOCKED_TOKEN
-
+    }
     function logTransfer(AtlasDexSwapTransfer memory transfer, uint32 nonce) internal returns (uint64 sequence) {
 
         bytes memory encoded = encodeTransfer(transfer);
 
         sequence = WORMHOLE_CONTRACT.publishMessage{
-            value : msg.value
-        }(nonce, encoded, 1);
+            value : 0
+        }(nonce, encoded, 5);
     }
     
     function encodeTransfer(AtlasDexSwapTransfer memory transfer) public pure returns (bytes memory encoded) {
         encoded = abi.encodePacked(
+            transfer.payloadID,
             transfer.amount,
             transfer.tokenAddress,
+            transfer.destTokenAddress,
             transfer.tokenChain,
             transfer.to,
             transfer.toChain,
             transfer.fee
         );
     }
+
     /**
     * Unlock Tokens
     */
@@ -213,14 +265,16 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
         
         require(verifyEmitterVM(vm), "invalid emitter");
 
-        AtlasDexSwapTransfer memory transfer = abi.decode(vm.payload, (AtlasDexSwapTransfer));
+        AtlasDexSwapTransfer memory transfer = parseTransfer(vm.payload);
 
         require(!isTransferCompleted(vm.hash), "transfer already completed");
         setTransferCompleted(vm.hash);
 
         require(transfer.toChain == chainId(), "invalid target chain");
 
-        address wrapped = wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
+        //: TODO instead of passing this address from source chain, we need to figure out better deal.
+        address wrapped = address(uint160(uint256(transfer.destTokenAddress)));
+        // wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
         require(wrapped != address(0), "no wrapper for this token created yet");
 
         IERC20 transferToken = IERC20(wrapped);
@@ -235,6 +289,38 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
 
         SafeERC20.safeTransfer(transferToken, transferRecipient, transferAmount);
         return true;
+    }
+
+    function parseTransfer(bytes memory encoded) public pure returns (AtlasDexSwapTransfer memory transfer) {
+        uint index = 0;
+
+        transfer.payloadID = encoded.toUint8(index);
+        index += 1;
+
+        require(transfer.payloadID == 1, "invalid Transfer");
+
+        transfer.amount = encoded.toUint256(index);
+        index += 32;
+
+        transfer.tokenAddress = encoded.toBytes32(index);
+        index += 32;
+
+        transfer.destTokenAddress = encoded.toBytes32(index);
+        index += 32;
+
+        transfer.tokenChain = encoded.toUint16(index);
+        index += 2;
+
+        transfer.to = encoded.toBytes32(index);
+        index += 32;
+
+        transfer.toChain = encoded.toUint16(index);
+        index += 2;
+
+        transfer.fee = encoded.toUint256(index);
+        index += 32;
+
+        require(encoded.length == index, "invalid Transfer");
     }
 
     function withdrawIfAnyEthBalance(address payable receiver) external onlyOwner returns (uint256) {
@@ -262,16 +348,17 @@ contract AtlasDexSwapPOC is Ownable, ReentrancyGuard {
         return completedTransfers[hash];
     }
 
+    // We Are doing this 4 so that we should handle all cross chain.
     function normalizeAmount(uint256 amount, uint8 decimals) internal pure returns(uint256){
-        if (decimals > 8) {
-            amount /= 10 ** (decimals - 8);
+        if (decimals > 4) {
+            amount /= 10 ** (decimals - 4);
         }
         return amount;
     }
 
     function deNormalizeAmount(uint256 amount, uint8 decimals) internal pure returns(uint256){
-        if (decimals > 8) {
-            amount *= 10 ** (decimals - 8);
+        if (decimals > 4) {
+            amount *= 10 ** (decimals - 4);
         }
         return amount;
     }

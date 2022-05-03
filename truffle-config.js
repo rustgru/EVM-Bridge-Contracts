@@ -51,7 +51,7 @@ module.exports = {
         return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_POLYGON_MAINNET)
       },
       network_id: 137,
-      skipDryRun: true,
+      gasPrice: 40000000000,
     },
     polygon_testnet: {
       provider: function() {
@@ -71,6 +71,14 @@ module.exports = {
         return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_BINANCE_MAINNET)
       },
       network_id: 56,
+      skipDryRun: true,
+    },   
+    avax: {
+      provider: function() {
+        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB_HTTP_PROVIDER_AVAX_MAINNET)
+      },
+      network_id: 43114,
+      gasPrice: 90000000000,
       skipDryRun: true,
     },
   },
