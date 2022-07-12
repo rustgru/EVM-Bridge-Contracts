@@ -1,0 +1,58 @@
+module.exports = {
+  mainnet: {
+    nativeWrappedAddress: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  binance: {
+    nativeWrappedAddress: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  polygon: {
+    nativeWrappedAddress: "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  avalanche: {
+    nativeWrappedAddress: "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  fantom: {
+    nativeWrappedAddress: "0x21be370d5312f44cb42ce377bc9b8a0cef1a4c83",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  development: {
+    nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  eth_devnet: {
+    nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+  goerli: {
+    nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  },
+};

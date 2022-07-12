@@ -1,10 +1,25 @@
 const HDWalletProvider = require("@truffle/hdwallet-provider");
 require('dotenv').config();
+const fs = require("fs");
+
+function prepareConfig() {
+  // expected config path
+  const configPath = `${__dirname}/deployment_config.js`;
+
+  // create dummy object if deployment config doesn't exist
+  // for compilation purposes
+  if (fs.existsSync(configPath)) {
+    DeploymentConfig = require(configPath);
+  } else {
+    DeploymentConfig = {};
+  }
+}
+prepareConfig();
 
 module.exports = {
   compilers: {
        solc: {
-          version: "^0.8.0",
+          version: "^0.8.4",
           settings: {
             optimizer: {
               enabled: true,
@@ -26,29 +41,33 @@ module.exports = {
     },
     rinkeby: {
       provider: function() {
-        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_RINKEBY)
+        return new HDWalletProvider(
+          DeploymentConfig["rinkeby"].mnemonic,
+          DeploymentConfig["rinkeby"].rpc
+        )
       },
       network_id: 4,
-    },
-    
-    ropsten: {
-      provider: function() {
-        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_ROPSTEN)
-      },
-      network_id: 3,
-      //from: ''
     },
 
     mainnet: {
       provider: function() {
-        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_MAINNET)
+        return new HDWalletProvider(
+          DeploymentConfig["mainnet"].mnemonic,
+          DeploymentConfig["mainnet"].rpc
+        )
       },
-      network_id: 1
+      network_id: 1,
+      confirmations: 1,
+      timeoutBlocks: 200,
+      skipDryRun: false,
     },
     
-    polygon_mainnet: {
+    polygon: {
       provider: function() {
-        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB3_HTTP_PROVIDER_POLYGON_MAINNET)
+        return new HDWalletProvider(
+          process.env.PRIVATE_KEY, 
+          process.env.WEB3_HTTP_PROVIDER_POLYGON_MAINNET
+        )
       },
       network_id: 137,
       gasPrice: 40000000000,
