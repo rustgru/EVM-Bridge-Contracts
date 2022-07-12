@@ -39,11 +39,15 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
 
     /**
      * @dev Withdraw Tokens on Wrapped. 
+     * @param _tokenAmount to be used for withdrawing in native currency from wrapped.
+     * @param _isUserFundUsed is used either we need to get fund from user address and then call swap or direct use smart contract balance.   
      */
-    function withdrawToUnWrappedToken(uint256 _tokenAmount) internal returns (uint256) {
+    function withdrawToUnWrappedToken(uint256 _tokenAmount, bool _isUserFundUsed) internal returns (uint256) {
         IWETH wrapped = IWETH(NATIVE_WRAPPED_ADDRESS);
-        require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficient balance to UnWrap");
-        wrapped.safeTransferFrom(msg.sender, address(this), _tokenAmount);
+        if (_isUserFundUsed) {
+            require(wrapped.balanceOf(msg.sender) >= _tokenAmount, "Atlas DEX: You have insufficient balance to UnWrap");
+            wrapped.safeTransferFrom(msg.sender, address(this), _tokenAmount);
+        }
         wrapped.withdraw(_tokenAmount);
         // First Calculating here deduct 0.15 percent.
         uint256 feeDeductionAmount = (_tokenAmount * FEE_PERCENT) / FEE_PERCENT_DENOMINATOR;
@@ -168,7 +172,7 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
         } else if (_IsWrapped) {
             return depositToWrappedToken();
         } else if ( _IsUnWrapped) {
-            return withdrawToUnWrappedToken(_amount);
+            return withdrawToUnWrappedToken(_amount, true);
         }
         return 0;
 
@@ -228,7 +232,7 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
         else if (_IsWrapped) {
             amountTransfer =  depositToWrappedToken();
         } else if ( _IsUnWrapped) {
-            amountTransfer = withdrawToUnWrappedToken(_amount);
+            amountTransfer = withdrawToUnWrappedToken(_amount, true);
         }
         return amountTransfer;
 
@@ -239,9 +243,9 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
      * @param _wormholeTokenBridgeToken  a wormhole bridge where fromw need to redeem token
      * @param _encodedVAA  VAA for redeeming to get from wormhole guardians
      * @param _1inchData a 1inch data to call aggregate router to swap assets.
-     * @param _0xData a 1inch data to call aggregate router to swap assets.
+     * @param _IsUnWrapped to decide if redeem is wrapped asset and user want to be unwrapped so that we should save fee.
      */
-    function unlockTokensWithPayload(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bytes calldata _0xData, bool _IsUnWrapped) external payable returns (uint256) {
+    function unlockTokensWithPayload(address _wormholeTokenBridgeToken, bytes memory _encodedVAA,  bytes calldata _1inchData, bool _IsUnWrapped) external payable returns (uint256) {
         // initiate wormhole bridge contract  
         require(_wormholeTokenBridgeToken != address(0), "Atlas Dex: Wormhole Token Bride Address can't be null");      
         ITokenBridgeWormhole wormholeTokenBridgeContract =  ITokenBridgeWormhole(_wormholeTokenBridgeToken);
@@ -302,24 +306,10 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
            
                 amountTransfer = _swapToken1Inch(_1inchData, false);
             }
-        } else if (_0xData.length > 1) {
-            ( SwapStructs._0xSwapDescription memory swapDescriptionObj) = abi.decode(_0xData[4:], (SwapStructs._0xSwapDescription));
- 
-
-            if (swapDescriptionObj.inputToken == 0x0000000000000000000000000000000000000080) { // this is because as sometime 0x send data like sellToPancakeSwap or sellToUniswapSwap
-                ( address[] memory tokens, uint256 sellAmount,, ) = abi.decode(_0xData[4:], (address[], uint256, uint256, uint8));
-                swapDescriptionObj.inputToken = tokens[0];
-                swapDescriptionObj.outputToken = tokens[tokens.length - 1];
-                swapDescriptionObj.inputTokenAmount = sellAmount;
-            }
-            require(swapDescriptionObj.inputToken == address(transferToken), "Atlas DEX: Token Not Matched");
-            require(swapDescriptionObj.inputTokenAmount == amountRedeemed, "Atlas DEX: 0x Swap Token  Amount Not Matched");
-
-            amountTransfer = _swapToken0x(_0xData);
         }
         else if (_IsUnWrapped) {
             require(NATIVE_WRAPPED_ADDRESS == address(transferToken), "Atlas DEX: Token Not Matched");
-            amountTransfer = withdrawToUnWrappedToken(amountRedeemed);
+            amountTransfer = withdrawToUnWrappedToken(amountRedeemed, false);
         }
         return amountTransfer;
 
@@ -354,7 +344,7 @@ contract AtlasDexSwap is SwapSetters, SwapGetters {
         else if (lockedTokenData._IsWrapped) {
             amountToLock =  depositToWrappedToken();
         } else if ( lockedTokenData._IsUnWrapped) {
-            amountToLock = withdrawToUnWrappedToken(lockedTokenData._amountToUnwrap);
+            amountToLock = withdrawToUnWrappedToken(lockedTokenData._amountToUnwrap, true);
         }
 
 
