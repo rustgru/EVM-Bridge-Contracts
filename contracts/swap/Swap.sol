@@ -18,7 +18,7 @@ import "./SwapGetters.sol";
  * @dev Proxy contract to swap first by redeeming from wormhole and then call 1inch router to swap assets
  * successful.
  */
-contract AtlasDexSwap is SwapSetters, SwapGetters {
+contract Swap is SwapSetters, SwapGetters {
 
     using SafeERC20 for IERC20;
     using SafeERC20 for IWETH;

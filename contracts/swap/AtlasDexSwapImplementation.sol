@@ -6,7 +6,7 @@ pragma experimental ABIEncoderV2;
 
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Upgrade.sol";
 
-import "./AtlasDexSwap.sol";
+import "./Swap.sol";
 
 
 contract AtlasDexSwapImplementation {

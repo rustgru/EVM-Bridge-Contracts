@@ -1,10 +1,11 @@
-var Swap = artifacts.require("./Swap.sol");
+var AtlasDexSwap = artifacts.require("./Swap.sol");
 
+const DeploymentConfig = require(`${__dirname}/../deployment_config.js`);
 
 module.exports = function(deployer, network) {
   const config = DeploymentConfig[network];
   if (!config) {
     throw Error("deployment config undefined");
   }
-  deployer.deploy(Swap, config.nativeWrappedAddress, config.feeCollector);
+  deployer.deploy(AtlasDexSwap, config.nativeWrappedAddress, config.feeCollector);
 };
