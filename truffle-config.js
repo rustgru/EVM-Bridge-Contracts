@@ -79,9 +79,12 @@ module.exports = {
       network_id: 80001
     },
 
-    binance_test: {
+    binance_testnet: {
       provider: function() {
-        return new HDWalletProvider(process.env.MNEMONIC, process.env.WEB3_HTTP_PROVIDER_BINANCE_TEST)
+        return new HDWalletProvider(
+          DeploymentConfig["binance_testnet"].mnemonic,
+          DeploymentConfig["binance_testnet"].rpc
+        )
       },
       network_id: 97
     },

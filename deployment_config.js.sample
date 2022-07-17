@@ -1,5 +1,7 @@
 module.exports = {
   mainnet: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -7,6 +9,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   binance: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -14,6 +18,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   polygon: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -21,6 +27,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   avalanche: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -28,6 +36,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   fantom: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0x21be370d5312f44cb42ce377bc9b8a0cef1a4c83",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -35,6 +45,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   development: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -42,6 +54,8 @@ module.exports = {
     deployImplementationOnly: false,
   },
   eth_devnet: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
@@ -49,10 +63,21 @@ module.exports = {
     deployImplementationOnly: false,
   },
   goerli: {
+    wormholeBridge: "",
+    wormholeTokenBridge: "",
     nativeWrappedAddress: "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
     feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
     mnemonic: "", // could be either private key or mnemonic
     rpc: "",
     deployImplementationOnly: false,
   },
+  binance_testnet: {
+    wormholeBridge: "0x68605AD7b15c732a30b1BbC62BE8F2A509D74b4D",
+    wormholeTokenBridge: "0x9dcF9D205C9De35334D646BeE44b2D2859712A09",
+    nativeWrappedAddress: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+    feeCollector: "0xcA785d209ec398840881f1c1638a16e98a20da14",
+    mnemonic: "", // could be either private key or mnemonic
+    rpc: "",
+    deployImplementationOnly: false,
+  }
 };
