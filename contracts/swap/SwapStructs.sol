@@ -153,8 +153,4 @@ contract SwapStructs {
         uint256 _amountToUnwrap;
         bytes _payload;
     }
-
-    struct CrossChainRelayerPayload {
-        bytes32 receiver;
-    }
 } // end of class
