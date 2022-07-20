@@ -94,7 +94,19 @@ module.exports = {
       },
       network_id: 56,
       skipDryRun: true,
-    },   
+    },
+    fantom: {
+      provider: function() {
+        return new HDWalletProvider(
+          DeploymentConfig["fantom"].mnemonic,
+          DeploymentConfig["fantom"].rpc
+        )
+      },
+      network_id: 250,
+      skipDryRun: true,
+      gasPrice: 30000000000,
+
+    },  
     avax: {
       provider: function() {
         return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB_HTTP_PROVIDER_AVAX_MAINNET)
@@ -110,5 +122,6 @@ module.exports = {
     bscscan: process.env.BSCSCAN_API_KEY,
     etherscan: process.env.ETHERSCAN_API_KEY,
     polygonscan: process.env.POLYGONSCAN_API_KEY,
+    ftmscan: '77ETYAB332TZ2YFFH2YM7G31F85E86IYZJ',
   }
 };

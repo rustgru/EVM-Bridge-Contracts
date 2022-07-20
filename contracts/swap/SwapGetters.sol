@@ -26,4 +26,19 @@ contract SwapGetters is SwapState {
         return amount;
     }
 
+    /*
+     * @dev Parse a token transfer with payload (payload id 3).
+     *
+     * @params encoded The byte array corresponding to the token transfer (not
+     *                 the whole VAA, only the payload)
+     */
+    function parseUnlockWithPayload(bytes memory encoded) public pure returns (SwapStructs.CrossChainRelayerPayload memory relayerPayload) {
+        uint index = 0;
+
+        relayerPayload.receiver = encoded.toBytes32(index);
+        index += 32;
+
+        relayerPayload.token = encoded.toBytes32(index);
+        index += 32;
+    }
 } // end of class

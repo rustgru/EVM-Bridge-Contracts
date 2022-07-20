@@ -13,8 +13,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./SwapStructs.sol";
 import "./SwapSetters.sol";
 import "./SwapGetters.sol";
-import "../libraries/external/BytesLib.sol";
-
 /**
  * @title AtlasDexSwap
  * @dev Proxy contract to swap first by redeeming from wormhole and then call 1inch router to swap assets
@@ -27,7 +25,6 @@ contract Swap is SwapSetters, SwapGetters {
 
     using SafeMath for uint256;
 
-    using BytesLib for bytes;
 
     constructor(address nativeWrappedAddress, address _feeCollector) {
         require(nativeWrappedAddress != address(0), "Atlas Dex: Invalid Wrapped address");
@@ -295,7 +292,8 @@ contract Swap is SwapSetters, SwapGetters {
         require(amountRedeemed > 0 && transfer.amount == amountRedeemed, "Atlas Dex: Invalid Balance After complete Transfer");
         address userRecipient;
         {/// bypass stack too deep
-            userRecipient = address(uint160(uint256(transfer.payload.toBytes32(32))));
+            SwapStructs.CrossChainRelayerPayload memory relayerPayload = parseUnlockWithPayload(transfer.payload);
+            userRecipient = address(uint160(uint256(relayerPayload.receiver)));
             require(userRecipient != address(0), "Atlas Dex: Invalid Payload");
         }
         uint256 amountTransfer;
