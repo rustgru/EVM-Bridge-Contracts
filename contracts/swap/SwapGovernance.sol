@@ -11,9 +11,6 @@ import "./SwapGetters.sol";
 contract SwapGovernance is SwapSetters, SwapGetters, ERC1967Upgrade  {
     event ContractUpgraded(address indexed oldContract, address indexed newContract);
 
-    constructor () {
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-    }
     /// @dev upgrade serves to upgrade contract implementations
     function upgrade(address newImplementation) public {
         require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "Caller is not a admin");

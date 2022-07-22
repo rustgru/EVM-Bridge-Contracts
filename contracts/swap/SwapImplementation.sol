@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Upgrade.sol";
 import "./Swap.sol";
 
 
-contract AtlasDexSwapImplementation is Swap {
+contract SwapImplementation is Swap {
     function initialize() initializer public virtual {
         /// @dev this function needs to be exposed for an upgrade to pass
     }

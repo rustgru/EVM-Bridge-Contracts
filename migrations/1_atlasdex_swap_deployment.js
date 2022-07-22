@@ -1,6 +1,6 @@
-var AtlasDexSwapImplementation = artifacts.require("AtlasDexSwapImplementation")
-var AtlasDexSwapSetup = artifacts.require("AtlasDexSwapSetup");
-var AtlasDexSwapProxy = artifacts.require("AtlasDexSwapProxy")
+var SwapImplementation = artifacts.require("SwapImplementation")
+var SwapSetup = artifacts.require("SwapSetup");
+var AtlasSwapProxy = artifacts.require("AtlasSwapProxy")
 const DeploymentConfig = require(`${__dirname}/../deployment_config.js`);
 
 module.exports = async function(deployer, network) {
@@ -9,20 +9,20 @@ module.exports = async function(deployer, network) {
     throw Error("deployment config undefined");
   }
 
-  await deployer.deploy(AtlasDexSwapImplementation);
+  await deployer.deploy(SwapImplementation);
 
   if (!config.deployImplementationOnly) {
     // deploy conductor setup
-    await deployer.deploy(AtlasDexSwapSetup);
+    await deployer.deploy(SwapSetup);
 
     // encode initialization data
     const atlasSwapSetup = new web3.eth.Contract(
-      AtlasDexSwapSetup.abi,
-      AtlasDexSwapSetup.address
+      SwapSetup.abi,
+      SwapSetup.address
     );
     const swapInitData = atlasSwapSetup.methods
       .setup(
-        AtlasDexSwapImplementation.address,
+        SwapImplementation.address,
         config.nativeWrappedAddress,
         config.feeCollector,
         config._1InchRouter,
@@ -30,10 +30,10 @@ module.exports = async function(deployer, network) {
       )
       .encodeABI();
 
-    // deploy conductor proxy
+    // deploy Swap proxy
     await deployer.deploy(
-      AtlasDexSwapProxy,
-      AtlasDexSwapSetup.address,
+      AtlasSwapProxy,
+      SwapSetup.address,
       swapInitData
     );
   }
