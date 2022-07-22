@@ -41,4 +41,8 @@ contract SwapGetters is SwapState {
         relayerPayload.token = encoded.toBytes32(index);
         index += 32;
     }
+
+    function isInitialized(address impl) public view returns (bool) {
+        return initializedImplementations[impl];
+    }
 } // end of class

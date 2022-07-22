@@ -9,24 +9,20 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Upgrade.sol";
 import "./Swap.sol";
 
 
-contract AtlasDexSwapImplementation {
-    // Beacon getter for the token contracts
-    function implementation() public view returns (address) {
-        return address(this);
+contract AtlasDexSwapImplementation is Swap {
+    function initialize() initializer public virtual {
+        /// @dev this function needs to be exposed for an upgrade to pass
     }
 
-    function initialize() initializer public virtual {}
-
     modifier initializer() {
- /**
         address impl = ERC1967Upgrade._getImplementation();
 
         require(
             !isInitialized(impl),
             "already initialized"
         );
-    */
-        // setInitialized(impl);
+
+        setInitialized(impl);
 
         _;
     }

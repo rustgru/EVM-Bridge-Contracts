@@ -10,32 +10,22 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "./SwapGovernance.sol";
 import "./SwapStructs.sol";
-import "./SwapSetters.sol";
-import "./SwapGetters.sol";
 /**
  * @title AtlasDexSwap
  * @dev Proxy contract to swap first by redeeming from wormhole and then call 1inch router to swap assets
  * successful.
  */
-contract Swap is SwapSetters, SwapGetters {
+contract Swap is SwapGovernance  {
 
     using SafeERC20 for IERC20;
     using SafeERC20 for IWETH;
 
     using SafeMath for uint256;
 
-
-    constructor(address nativeWrappedAddress, address _feeCollector) {
-        require(nativeWrappedAddress != address(0), "Atlas Dex: Invalid Wrapped address");
-        require(_feeCollector != address(0), "Atlas Dex: Fee Collector Invalid");         
-        FEE_COLLECTOR = _feeCollector;
-        NATIVE_WRAPPED_ADDRESS = nativeWrappedAddress;
-        oneInchAggregatorRouter = 0x1111111254fb6c44bAC0beD2854e76F90643097d;
-        OxAggregatorRouter = 0xDef1C0ded9bec7F1a1670819833240f027b25EfF;
-    }
-    
-
+    // Event for locked amount.
+    event AmountLocked (address indexed dstReceiver, uint256 amountReceived);
 
     /**
      * @dev Withdraw Tokens on Wrapped. 
@@ -238,6 +228,52 @@ contract Swap is SwapSetters, SwapGetters {
 
     } // end of unlock Token
 
+    function unlockTokensWithPayloadTest(address _wormholeTokenBridgeToken, bytes memory _encodedVAA) external payable returns (uint256) {
+        // initiate wormhole bridge contract  
+        require(_wormholeTokenBridgeToken != address(0), "Atlas Dex: Wormhole Token Bride Address can't be null");      
+        ITokenBridgeWormhole wormholeTokenBridgeContract =  ITokenBridgeWormhole(_wormholeTokenBridgeToken);
+
+        WormholeStructs.TransferWithPayload memory transfer = wormholeTokenBridgeContract.parseTransferWithPayload(_encodedVAA);
+        
+        // verify that correct VAA is passed for relayer.
+        require(transfer.payloadID == 3, "Atlas Dex: Invalid Payload ID for Unlock");
+        
+        // as its payload 3 so must be redeemed by the address (this)
+        address transferRecipient = address(uint160(uint256(transfer.to)));
+        require(transferRecipient == address(this), "Atlas Dex: Invalid Recipient Address");
+        
+        IERC20 transferToken;
+        if (transfer.tokenChain == wormholeTokenBridgeContract.chainId()) {
+            transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
+        } else {
+            address wrapped = wormholeTokenBridgeContract.wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
+            require(wrapped != address(0), "AtlasDex: no wrapper for this token created yet");
+
+            transferToken = IERC20(wrapped);
+        }
+        uint256 amountRedeemed;
+        uint256 balanceBefore;
+        {/// bypass stack too deep
+            (, bytes memory queriedBalanceBefore) = address(transferToken).staticcall(
+                abi.encodeWithSelector(IERC20.balanceOf.selector, address(this))
+            );
+            balanceBefore = abi.decode(queriedBalanceBefore, (uint256));
+        }
+            
+        wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
+
+        { /// bypass stack too deep
+            /// query own token balance after transfer
+            (, bytes memory queriedBalanceAfter) = address(transferToken).staticcall(
+                abi.encodeWithSelector(IERC20.balanceOf.selector, address(this))
+            );
+            uint256 balanceAfter = abi.decode(queriedBalanceAfter, (uint256));
+    
+            amountRedeemed = balanceAfter.sub(balanceBefore);
+        }
+
+        return amountRedeemed;
+    } // end of test
     /**
      * @dev Initiate a wormhole bridge redeem call to unlock asset with payload and then call 1inch router to swap tokens with unlocked balance.
      * @param _wormholeTokenBridgeToken  a wormhole bridge where fromw need to redeem token
@@ -257,7 +293,7 @@ contract Swap is SwapSetters, SwapGetters {
         
         // as its payload 3 so must be redeemed by the address (this)
         address transferRecipient = address(uint160(uint256(transfer.to)));
-        require(transferRecipient == address(this), "Atlas Dex: Invalid Balance Recipient");
+        require(transferRecipient == address(this), "Atlas Dex: Invalid Recipient Address");
         
         IERC20 transferToken;
         if (transfer.tokenChain == wormholeTokenBridgeContract.chainId()) {
