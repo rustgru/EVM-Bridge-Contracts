@@ -15,6 +15,11 @@ contract SwapSetup is SwapSetters, ERC1967Upgrade {
         address _0xRouter
     ) public {
 
+        FEE_PERCENT = 15;
+        FEE_PERCENT_DENOMINATOR = 10000; // 
+        MAX_INT = 2**256 - 1;
+        NATIVE_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
         setFeeCollector(_feeCollector);
         setNativeWrappedAddress(nativeWrappedAddress);
         set1InchRouter(_1inchRouter);

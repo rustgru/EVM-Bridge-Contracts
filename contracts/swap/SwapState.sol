@@ -6,6 +6,7 @@ pragma solidity ^0.8.0;
  * @title AtlasDexSwap
  */
 contract SwapState {
+
     address tokenImplementation;
 
     // we do save 1 inch router in constructor to swap token.
@@ -18,7 +19,7 @@ contract SwapState {
     
     // This Wrapped means each chain wrapped address like WETH, WBNB etc.
     address public NATIVE_WRAPPED_ADDRESS = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // bsc address
-    uint256 MAX_INT = 2**256 - 1;
+    uint256 public MAX_INT = 2**256 - 1;
     
     uint256 public FEE_PERCENT = 15; // we will use 15 this 15 is for 0.15.
     
