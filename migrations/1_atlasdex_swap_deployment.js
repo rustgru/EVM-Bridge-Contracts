@@ -36,7 +36,11 @@ module.exports = async function(deployer, network) {
       SwapSetup.address,
       swapInitData
     );
+  } else {
+    // initlaize Swap proxy with updated implementation address.
+    const atlasSwapProxyContract = await SwapImplementation.at(AtlasSwapProxy.address);
+
+    await atlasSwapProxyContract.upgrade.sendTransaction(SwapImplementation.address)
   }
   console.log('---- ALL DEPLOYED ----');
-  // deployer.deploy(AtlasDexSwap, config.nativeWrappedAddress, config.feeCollector);
 };

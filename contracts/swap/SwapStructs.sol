@@ -157,5 +157,11 @@ contract SwapStructs {
     struct CrossChainRelayerPayload {
         bytes32 receiver;
         bytes32 token;
+        
+        bytes32 _id;
+
+        uint256 slippage;
+
+        uint256 fee;
     }
 } // end of class

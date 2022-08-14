@@ -40,9 +40,9 @@ contract Swap is SwapGovernance  {
         }
         wrapped.withdraw(_tokenAmount);
         // First Calculating here deduct 0.15 percent.
-        uint256 feeDeductionAmount = (_tokenAmount * FEE_PERCENT) / FEE_PERCENT_DENOMINATOR;
+        uint256 feeDeductionAmount = (_tokenAmount.mul(FEE_PERCENT)).div(FEE_PERCENT_DENOMINATOR);
         payable(FEE_COLLECTOR).transfer(feeDeductionAmount);
-        payable(msg.sender).transfer((_tokenAmount - feeDeductionAmount));
+        payable(msg.sender).transfer((_tokenAmount.sub(feeDeductionAmount)));
         return  _tokenAmount;
     } // end of deposit ToWrappedToken.    
     /**
@@ -253,64 +253,82 @@ contract Swap is SwapGovernance  {
         require(transfer.payloadID == 3, "Atlas Dex: Invalid Payload ID for Unlock");
         
         // as its payload 3 so must be redeemed by the address (this)
-        address transferRecipient = address(uint160(uint256(transfer.to)));
-        require(transferRecipient == address(this), "Atlas Dex: Invalid Recipient Address");
+        require(address(uint160(uint256(transfer.to))) == address(this), "Atlas Dex: Invalid Recipient Address");
         
         IERC20 transferToken;
-        if (transfer.tokenChain == wormholeTokenBridgeContract.chainId()) {
-            transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
-        } else {
-            address wrapped = wormholeTokenBridgeContract.wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
-            require(wrapped != address(0), "AtlasDex: no wrapper for this token created yet");
+        {/// bypass stack too deep
+            if (transfer.tokenChain == wormholeTokenBridgeContract.chainId()) {
+                transferToken = IERC20(address(uint160(uint256(transfer.tokenAddress))));
+            } else {
+                address wrapped = wormholeTokenBridgeContract.wrappedAsset(transfer.tokenChain, transfer.tokenAddress);
+                require(wrapped != address(0), "AtlasDex: no wrapper for this token created yet");
 
-            transferToken = IERC20(wrapped);
+                transferToken = IERC20(wrapped);
+            }
         }
+
         uint256 amountRedeemed;
-        uint256 balanceBefore;
         {/// bypass stack too deep
             (, bytes memory queriedBalanceBefore) = address(transferToken).staticcall(
                 abi.encodeWithSelector(IERC20.balanceOf.selector, address(this))
             );
-            balanceBefore = abi.decode(queriedBalanceBefore, (uint256));
-        }
-            
-        wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
+            uint256 balanceBefore = abi.decode(queriedBalanceBefore, (uint256));
 
-        { /// bypass stack too deep
+            // call wormhole bridge  to redeem token to this contract.
+            wormholeTokenBridgeContract.completeTransfer(_encodedVAA);
+
+
             /// query own token balance after transfer
             (, bytes memory queriedBalanceAfter) = address(transferToken).staticcall(
                 abi.encodeWithSelector(IERC20.balanceOf.selector, address(this))
             );
             uint256 balanceAfter = abi.decode(queriedBalanceAfter, (uint256));
     
+            // instead of trusting on payload amount. we will trust on balance after transfer.
             amountRedeemed = balanceAfter.sub(balanceBefore);
         }
-        // amount transfer to our contract should be same as in payload.
-        require(amountRedeemed > 0 && transfer.amount == amountRedeemed, "Atlas Dex: Invalid Balance After complete Transfer");
         address userRecipient;
+        uint256 fee;
         {/// bypass stack too deep
             SwapStructs.CrossChainRelayerPayload memory relayerPayload = parseUnlockWithPayload(transfer.payload);
             userRecipient = address(uint160(uint256(relayerPayload.receiver)));
             require(userRecipient != address(0), "Atlas Dex: Invalid Payload");
+            fee = relayerPayload.fee;
+            
+            // query tokens decimals to normalize amount. as transfer.amount is already normalized.
+            (,bytes memory queriedDecimals) = address(transferToken).staticcall(abi.encodeWithSignature("decimals()"));
+            uint8 decimals = abi.decode(queriedDecimals, (uint8));
+
+            uint256 amountRedeemedNormalized = normalizeAmount(amountRedeemed, decimals);
+            // amount transfer to our contract should be same as in payload. as we are checking with normalized because wormhole support transfer up to 8 decimals
+            require(amountRedeemed.sub(fee) > 0 && transfer.amount == amountRedeemedNormalized, "Atlas Dex: Invalid Balance After complete Transfer");
         }
+
+        // this is track exact output amount of token to be sent to user.
         uint256 amountTransfer;
+        // First tranfer fee of wormhole unlocked to collector. 
+        transferToken.safeTransfer(FEE_COLLECTOR, fee);
+
         if(_1inchData.length > 1) {
-            (, SwapStructs._1inchSwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapStructs._1inchSwapDescription, bytes));
             {/// bypass stack too deep
+                (, SwapStructs._1inchSwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapStructs._1inchSwapDescription, bytes));
                 require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
-                require(swapDescriptionObj.amount == amountRedeemed, "Atlas DEX: 1inch Swap Token  Amount Not Matched");
+                require(swapDescriptionObj.amount == amountRedeemed.sub(fee), "Atlas DEX: 1inch Swap Token  Amount Not Matched");
                 require(userRecipient == swapDescriptionObj.dstReceiver, "Atlas Dex: Invalid Balance Reciever");
-           
                 amountTransfer = _swapToken1Inch(_1inchData, false);
             }
         }
         else if (_IsUnWrapped) {
             require(NATIVE_WRAPPED_ADDRESS == address(transferToken), "Atlas DEX: Token Not Matched");
-            amountTransfer = withdrawToUnWrappedToken(amountRedeemed, false);
+            amountTransfer = withdrawToUnWrappedToken(amountRedeemed.sub(fee), false);
+        } else {
+            // here means user want to get wormhole unlocked token.
+            transferToken.safeTransfer(userRecipient, amountRedeemed.sub(fee));
         }
         return amountTransfer;
 
     } // end of unlock Token with payload
+
     /**
      * @dev Initiate a 1inch/_0x router to swap tokens and then wormhole bridge call to lock asset.
      * @param lockedTokenData  a wormhole bridge where need to lock token
