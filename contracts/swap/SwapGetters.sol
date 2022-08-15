@@ -41,6 +41,9 @@ contract SwapGetters is SwapState {
         relayerPayload.token = encoded.toBytes32(index);
         index += 32;
 
+        relayerPayload._id = encoded.toBytes32(index);
+        index += 32;
+
         relayerPayload.slippage = encoded.toUint256(index);
         index += 32;
 

@@ -107,12 +107,14 @@ module.exports = {
       gasPrice: 30000000000,
 
     },  
-    avax: {
+    avalanche: {
       provider: function() {
-        return new HDWalletProvider(process.env.PRIVATE_KEY, process.env.WEB_HTTP_PROVIDER_AVAX_MAINNET)
+        return new HDWalletProvider(
+          DeploymentConfig["avalanche"].mnemonic,
+          DeploymentConfig["avalanche"].rpc
+        )
       },
       network_id: 43114,
-      gasPrice: 90000000000,
       skipDryRun: true,
     },
   },
@@ -123,5 +125,6 @@ module.exports = {
     etherscan: process.env.ETHERSCAN_API_KEY,
     polygonscan: process.env.POLYGONSCAN_API_KEY,
     ftmscan: '77ETYAB332TZ2YFFH2YM7G31F85E86IYZJ',
+    snowtrace: 'I9YJ2KZJMUZJ5JKCQFPANFD42YJVFGD6IM',
   }
 };
