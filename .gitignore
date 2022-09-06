@@ -2,3 +2,4 @@
 node_modules
 build
 deployment_config.js
+.DS_Store

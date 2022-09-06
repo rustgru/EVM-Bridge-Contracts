@@ -4,7 +4,12 @@ var AtlasSwapProxy = artifacts.require("AtlasSwapProxy")
 const DeploymentConfig = require(`${__dirname}/../deployment_config.js`);
 
 module.exports = async function(deployer, network) {
+
+  if (network === "ethereum-fork") {
+    network = "ethereum";
+  }
   const config = DeploymentConfig[network];
+  console.log(network, '----')
   if (!config) {
     throw Error("deployment config undefined");
   }

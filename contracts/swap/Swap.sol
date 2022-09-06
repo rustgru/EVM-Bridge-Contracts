@@ -288,13 +288,14 @@ contract Swap is SwapGovernance  {
             amountRedeemed = balanceAfter.sub(balanceBefore);
         }
         address userRecipient;
+        address destiationToken;
         uint256 fee;
         {/// bypass stack too deep
             SwapStructs.CrossChainRelayerPayload memory relayerPayload = parseUnlockWithPayload(transfer.payload);
             userRecipient = address(uint160(uint256(relayerPayload.receiver)));
             require(userRecipient != address(0), "Atlas Dex: Invalid Payload");
             fee = relayerPayload.fee;
-            
+            destiationToken = address(uint160(uint256(relayerPayload.token)));
             // query tokens decimals to normalize amount. as transfer.amount is already normalized.
             (,bytes memory queriedDecimals) = address(transferToken).staticcall(abi.encodeWithSignature("decimals()"));
             uint8 decimals = abi.decode(queriedDecimals, (uint8));
@@ -313,6 +314,8 @@ contract Swap is SwapGovernance  {
             {/// bypass stack too deep
                 (, SwapStructs._1inchSwapDescription memory swapDescriptionObj,) = abi.decode(_1inchData[4:], (address, SwapStructs._1inchSwapDescription, bytes));
                 require(swapDescriptionObj.srcToken == transferToken, "Atlas DEX: Token Not Matched");
+                require(address(swapDescriptionObj.dstToken) == destiationToken, "Atlas DEX: Destination Token Not Matched");
+
                 require(swapDescriptionObj.amount == amountRedeemed.sub(fee), "Atlas DEX: 1inch Swap Token  Amount Not Matched");
                 require(userRecipient == swapDescriptionObj.dstReceiver, "Atlas Dex: Invalid Balance Reciever");
                 amountTransfer = _swapToken1Inch(_1inchData, false);

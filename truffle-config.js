@@ -49,11 +49,11 @@ module.exports = {
       network_id: 4,
     },
 
-    mainnet: {
+    "ethereum": {
       provider: function() {
         return new HDWalletProvider(
-          DeploymentConfig["mainnet"].mnemonic,
-          DeploymentConfig["mainnet"].rpc
+          DeploymentConfig["ethereum"].mnemonic,
+          DeploymentConfig["ethereum"].rpc
         )
       },
       network_id: 1,
